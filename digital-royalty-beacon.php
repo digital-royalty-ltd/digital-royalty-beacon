@@ -5,7 +5,7 @@
  * Version: 0.1.0
  * Author: Digital Royalty
  * Requires at least: 6.0
- * Requires PHP: 8.0
+ * Requires PHP: 8.1
  * Text Domain: digital-royalty-beacon
  */
 
@@ -16,6 +16,9 @@ if (!defined('ABSPATH')) {
 define('DR_BEACON_VERSION', '0.1.0');
 define('DR_BEACON_FILE', __FILE__);
 define('DR_BEACON_DIR', __DIR__);
+define('DR_BEACON_API_BASE', 'https://app.digitalroyalty.co.uk/api');
+define('DR_BEACON_API_NAMESPACE', 'beacon');
+define('DR_BEACON_API_VERSION', 'v1');
 
 require_once DR_BEACON_DIR . '/src/Support/Autoloader.php';
 
