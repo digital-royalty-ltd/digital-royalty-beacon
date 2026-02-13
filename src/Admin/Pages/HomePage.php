@@ -1,18 +1,28 @@
 <?php
 
-namespace DigitalRoyalty\Beacon\Admin;
+namespace DigitalRoyalty\Beacon\Admin\Pages;
 
-use DigitalRoyalty\Beacon\Services\ApiClient;
 use DigitalRoyalty\Beacon\Admin\Tools\ToolPageInterface;
 use DigitalRoyalty\Beacon\Admin\Tools\ContentGeneratorPage;
 use DigitalRoyalty\Beacon\Admin\Tools\MetaGeneratorPage;
 use DigitalRoyalty\Beacon\Admin\Tools\GapSuggestionsPage;
+use DigitalRoyalty\Beacon\Repositories\ReportsRepository;
+use DigitalRoyalty\Beacon\Admin\Actions\Reports\ReportAdminActions;
+use DigitalRoyalty\Beacon\Services\Services;
+use DigitalRoyalty\Beacon\Systems\Api\ApiClient;
+use DigitalRoyalty\Beacon\Systems\Reports\ReportManager;
+use DigitalRoyalty\Beacon\Systems\Reports\ReportRegistry;
 
-final class SettingsPage
+final class HomePage
 {
     private const OPTION_API_KEY = 'dr_beacon_api_key';
     private const OPTION_SITE_ID = 'dr_beacon_site_id';
     private const OPTION_CONNECTED_AT = 'dr_beacon_connected_at';
+
+    // Legacy scan options (kept for now, but not used for gating tools anymore)
+    private const OPTION_HAS_SCAN = 'dr_beacon_has_scan';
+    private const OPTION_LAST_SCAN_AT = 'dr_beacon_last_scan_at';
+    private const OPTION_SCAN_JOB_ID = 'dr_beacon_scan_job_id';
 
     /** @var ToolPageInterface[] */
     private array $tools;
@@ -28,21 +38,8 @@ final class SettingsPage
 
     public function register(): void
     {
-        add_action('admin_menu', [$this, 'addMenu']);
-
         add_action('admin_post_dr_beacon_verify_save', [$this, 'handleVerifyAndSave']);
         add_action('admin_post_dr_beacon_disconnect', [$this, 'handleDisconnect']);
-    }
-
-    public function addMenu(): void
-    {
-        add_options_page(
-                'Beacon',
-                'Beacon',
-                'manage_options',
-                'dr-beacon',
-                [$this, 'render']
-        );
     }
 
     public function render(): void
@@ -77,20 +74,27 @@ final class SettingsPage
                 <?php $this->renderConnectScreen($apiKey); ?>
             <?php else : ?>
                 <?php
-                if ($toolSlug !== '') {
-                    $tool = $this->findTool($toolSlug);
+                // Onboarding gating is now driven by reports system, not legacy "has scan" option.
+                $isOnboardingComplete = $this->isReportsOnboardingComplete();
 
-                    if (!$tool) {
-                        $this->renderConnectedHome($siteId, $connectedAt, $apiKey);
-                    } else {
-                        if (!$tool->isAvailable()) {
-                            $this->renderComingSoon($tool);
-                        } else {
-                            $tool->render();
-                        }
-                    }
+                if (!$isOnboardingComplete) {
+                    $this->renderReportsOnboarding($siteId, $connectedAt, $apiKey);
                 } else {
-                    $this->renderConnectedHome($siteId, $connectedAt, $apiKey);
+                    if ($toolSlug !== '') {
+                        $tool = $this->findTool($toolSlug);
+
+                        if (!$tool) {
+                            $this->renderToolsHome($siteId, $connectedAt, $apiKey);
+                        } else {
+                            if (!$tool->isAvailable()) {
+                                $this->renderComingSoon($tool);
+                            } else {
+                                $tool->render();
+                            }
+                        }
+                    } else {
+                        $this->renderToolsHome($siteId, $connectedAt, $apiKey);
+                    }
                 }
                 ?>
             <?php endif; ?>
@@ -136,7 +140,128 @@ final class SettingsPage
         <?php
     }
 
-    private function renderConnectedHome(string $siteId, string $connectedAt, string $apiKey): void
+    private function renderReportsOnboarding(string $siteId, string $connectedAt, string $apiKey): void
+    {
+        global $wpdb;
+
+        $repo = new ReportsRepository($wpdb);
+        $registry = new ReportRegistry();
+        $required = $registry->required();
+
+        $manager = $this->reportsManager();
+        $effectiveStatus = $manager->getEffectiveStatus();
+        
+        $startUrl = wp_nonce_url(
+                admin_url('admin-post.php?action=' . rawurlencode(ReportAdminActions::ACTION_START)),
+                ReportAdminActions::ACTION_START
+        );
+
+        ?>
+        <p><strong>Status:</strong> <?php echo esc_html('Connected'); ?></p>
+
+        <div style="background:#fff;border:1px solid #ccd0d4;border-radius:10px;padding:16px;max-width:920px;margin-bottom:16px;">
+            <h2 style="margin-top:0;">Connection</h2>
+
+            <p style="margin:0 0 10px;">
+                <strong>Site ID:</strong> <code><?php echo esc_html($siteId); ?></code>
+            </p>
+
+            <?php if ($connectedAt !== '') : ?>
+                <p style="margin:0 0 10px;">
+                    <strong>Connected at:</strong> <code><?php echo esc_html($connectedAt); ?></code>
+                </p>
+            <?php endif; ?>
+
+            <p style="margin:0 0 14px;">
+                <strong>API key:</strong> <code><?php echo esc_html($this->maskKey($apiKey)); ?></code>
+            </p>
+
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0;display:flex;justify-content:flex-end;gap:8px;">
+                <input type="hidden" name="action" value="dr_beacon_disconnect" />
+                <?php wp_nonce_field('dr_beacon_disconnect'); ?>
+                <?php submit_button('Disconnect', 'secondary', 'submit', false); ?>
+            </form>
+
+            <p class="description" style="margin-top:10px;">
+                Disconnecting removes the saved API key from this WordPress site.
+            </p>
+        </div>
+
+        <div style="background:#fff;border:1px solid #ccd0d4;border-radius:10px;padding:16px;max-width:920px;">
+            <h2 style="margin-top:0;">Get started</h2>
+
+            <p class="description" style="margin-bottom:14px;">
+                Beacon needs an initial set of reports to understand your website. Once complete, your tools will appear.
+            </p>
+
+            <?php if ($effectiveStatus === ReportManager::STATUS_NOT_STARTED) : ?>
+                <p style="margin:0 0 14px;">
+                    <a class="button button-primary" href="<?php echo esc_url($startUrl); ?>">Start scans</a>
+                </p>
+                <?php elseif ($effectiveStatus === ReportManager::STATUS_RUNNING) : ?>
+                <div class="notice notice-info" style="margin:0 0 12px;">
+                    <p style="margin:0;">Scans are running in the background. You can leave this page and come back.</p>
+                </div>
+            <?php else : ?>
+                <div class="notice notice-warning" style="margin:0 0 12px;">
+                    <p style="margin:0;">Scans require attention. Review the failures below and retry.</p>
+                </div>
+            <?php endif; ?>
+
+            <table class="widefat striped" style="margin-top:10px;">
+                <thead>
+                <tr>
+                    <th>Report</th>
+                    <th>Version</th>
+                    <th>Status</th>
+                    <th>Last error</th>
+                    <th style="width:220px;">Actions</th>
+                </tr>
+                </thead>
+                <tbody>
+                <?php foreach ($required as $report) : ?>
+                    <?php
+                    $type = $report->type();
+                    $version = $report->version();
+                    $row = $repo->getByTypeAndVersion($type, $version);
+
+                    $rowStatus = is_array($row) ? (string) ($row['status'] ?? 'pending') : 'pending';
+                    $lastError = is_array($row) ? (string) ($row['last_error'] ?? '') : '';
+
+                    $rerunUrl = wp_nonce_url(
+                            admin_url('admin-post.php?action=' . rawurlencode(ReportAdminActions::ACTION_RERUN) . '&type=' . rawurlencode($type) . '&version=' . rawurlencode((string) $version)),
+                            ReportAdminActions::ACTION_RERUN
+                    );
+
+                    $badge = $this->statusBadge($rowStatus);
+                    ?>
+                    <tr>
+                        <td><code><?php echo esc_html($type); ?></code></td>
+                        <td><?php echo esc_html((string) $version); ?></td>
+                        <td><?php echo $badge; ?></td>
+                        <td style="max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                            <?php echo esc_html($lastError); ?>
+                        </td>
+                        <td>
+                            <?php if ($rowStatus === 'submitted') : ?>
+                                <span class="button disabled" style="pointer-events:none;opacity:0.65;">Complete</span>
+                            <?php else : ?>
+                                <a class="button" href="<?php echo esc_url($rerunUrl); ?>">Retry</a>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+
+            <p class="description" style="margin-top:12px;">
+                Until the API endpoint is implemented, submissions will fail by design. This screen helps validate reliability, retries, and error reporting.
+            </p>
+        </div>
+        <?php
+    }
+
+    private function renderToolsHome(string $siteId, string $connectedAt, string $apiKey): void
     {
         ?>
         <p><strong>Status:</strong> <?php echo esc_html('Connected'); ?></p>
@@ -158,7 +283,7 @@ final class SettingsPage
                 <strong>API key:</strong> <code><?php echo esc_html($this->maskKey($apiKey)); ?></code>
             </p>
 
-            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0;display:flex;justify-content:flex-start;">
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0;display:flex;justify-content:flex-end;gap:8px;">
                 <input type="hidden" name="action" value="dr_beacon_disconnect" />
                 <?php wp_nonce_field('dr_beacon_disconnect'); ?>
                 <?php submit_button('Disconnect', 'secondary', 'submit', false); ?>
@@ -233,8 +358,8 @@ final class SettingsPage
             $this->redirectWithMessage(false, 'API key is required.');
         }
 
-        $client = new ApiClient();
-        $res = $client->verifyApiKey($apiKey);
+        $client = new ApiClient($apiKey);
+        $res = $client->verifyApiKey();
 
         if (!$res->isOk()) {
             $msg = $res->message ?? ($res->isUnauthorized() ? 'Invalid API key.' : 'API key verification failed.');
@@ -249,6 +374,8 @@ final class SettingsPage
         update_option(self::OPTION_API_KEY, $apiKey, false);
         update_option(self::OPTION_SITE_ID, $siteId, false);
         update_option(self::OPTION_CONNECTED_AT, gmdate('c'), false);
+
+        Services::reset();
 
         $this->redirectWithMessage(true, 'Connected successfully.');
     }
@@ -265,6 +392,16 @@ final class SettingsPage
         delete_option(self::OPTION_SITE_ID);
         delete_option(self::OPTION_CONNECTED_AT);
 
+        // Legacy scan options
+        delete_option(self::OPTION_HAS_SCAN);
+        delete_option(self::OPTION_LAST_SCAN_AT);
+        delete_option(self::OPTION_SCAN_JOB_ID);
+
+        // Reports onboarding
+        delete_option(ReportManager::OPTION_STATUS);
+
+        Services::reset();
+
         $this->redirectWithMessage(true, 'Disconnected.');
     }
 
@@ -274,7 +411,7 @@ final class SettingsPage
                 'page' => 'dr-beacon',
                 'dr_beacon_ok' => $ok ? '1' : '0',
                 'dr_beacon_msg' => rawurlencode($message),
-        ], admin_url('options-general.php'));
+        ], admin_url('admin.php'));
 
         wp_safe_redirect($url);
         exit;
@@ -287,7 +424,30 @@ final class SettingsPage
             $args['tool'] = $tool;
         }
 
-        return add_query_arg($args, admin_url('options-general.php'));
+        return add_query_arg($args, admin_url('admin.php'));
+    }
+
+    private function isReportsOnboardingComplete(): bool
+    {
+        return $this->reportsManager()->getEffectiveStatus() === ReportManager::STATUS_COMPLETED;
+    }
+
+
+    private function statusBadge(string $status): string
+    {
+        $status = strtolower(trim($status));
+
+        $styles = [
+                'pending' => 'border:1px solid #dcdcde;background:#f6f7f7;color:#646970;',
+                'generated' => 'border:1px solid #8c8f94;background:#f6f7f7;color:#1d2327;',
+                'submitted' => 'border:1px solid #00a32a;background:#edfaef;color:#0a4b1f;',
+                'failed' => 'border:1px solid #d63638;background:#fcf0f1;color:#8a1f2b;',
+        ];
+
+        $label = $status !== '' ? ucfirst($status) : 'Unknown';
+        $style = $styles[$status] ?? $styles['pending'];
+
+        return '<span style="display:inline-block;font-size:12px;white-space:nowrap;padding:4px 8px;border-radius:999px;' . esc_attr($style) . '">' . esc_html($label) . '</span>';
     }
 
     /**
@@ -350,5 +510,15 @@ final class SettingsPage
         $end = substr($key, -4);
 
         return $start . str_repeat('*', max(0, $len - 10)) . $end;
+    }
+
+    private function reportsManager(): ReportManager
+    {
+        global $wpdb;
+
+        return new ReportManager(
+                new ReportRegistry(),
+                new ReportsRepository($wpdb)
+        );
     }
 }

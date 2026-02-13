@@ -1,6 +1,6 @@
 <?php
 
-namespace DigitalRoyalty\Beacon\Services;
+namespace DigitalRoyalty\Beacon\Systems\Api;
 
 final class ApiResponse
 {
