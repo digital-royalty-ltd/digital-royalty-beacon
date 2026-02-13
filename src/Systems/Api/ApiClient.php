@@ -1,33 +1,54 @@
 <?php
 
-namespace DigitalRoyalty\Beacon\Services;
+namespace DigitalRoyalty\Beacon\Systems\Api;
 
 final class ApiClient
 {
     private string $baseUrl;
+    private ?string $apiKey;
 
-    public function __construct(?string $baseUrl = null)
+    public function __construct(?string $apiKey = null, ?string $baseUrl = null)
     {
+        $this->apiKey = $apiKey ? trim($apiKey) : null;
+
         $this->baseUrl = $baseUrl
             ? rtrim($baseUrl, '/')
             : $this->resolveBaseUrl();
     }
 
     /**
-     * Verify API key against Beacon backend.
+     * Allow setting/changing the API key after construction (optional).
      */
-    public function verifyApiKey(string $apiKey): ApiResponse
+    public function withApiKey(?string $apiKey): self
+    {
+        $clone = clone $this;
+        $clone->apiKey = $apiKey ? trim($apiKey) : null;
+
+        return $clone;
+    }
+
+    /**
+     * Verify API key against Beacon backend.
+     * Payload is only client meta (auto included).
+     */
+    public function verifyApiKey(): ApiResponse
     {
         return $this->request(
-            'POST',
-            'verify-api-key',
-            $apiKey,
-            [
-                'site_url'       => home_url('/'),
-                'wp_version'     => get_bloginfo('version'),
-                'php_version'    => PHP_VERSION,
-                'plugin_version' => defined('DR_BEACON_VERSION') ? DR_BEACON_VERSION : null,
-            ]
+            method: 'POST',
+            path: 'verify-api-key',
+            payload: []
+        );
+    }
+
+    /**
+     * Submit a report envelope to the backend.
+     */
+    public function submitReports(array $envelope): ApiResponse
+    {
+        return $this->request(
+            method: 'POST',
+            path: 'reports/submit',
+            payload: $envelope
         );
     }
 
@@ -37,29 +58,42 @@ final class ApiClient
     private function request(
         string $method,
         string $path,
-        ?string $apiKey = null,
-        array $payload = []
+        array $payload = [],
+        bool $includeClientMeta = true,
+        bool $requireAuth = true
     ): ApiResponse {
         $url = $this->endpoint($path);
+
+        if ($requireAuth && !$this->apiKey) {
+            return new ApiResponse(
+                ok: false,
+                code: 401,
+                message: 'Missing Beacon API key.',
+                data: []
+            );
+        }
+
+        if ($includeClientMeta) {
+            $payload = $this->withClientMeta($payload);
+        }
+
+        $headers = [
+            'Accept'       => 'application/json',
+            'Content-Type' => 'application/json',
+            'User-Agent'   => $this->userAgent(),
+        ];
+
+        if ($this->apiKey) {
+            $headers['Authorization'] = 'Bearer ' . $this->apiKey;
+        }
 
         $args = [
             'timeout'     => 15,
             'redirection' => 3,
             'method'      => strtoupper($method),
-            'headers'     => [
-                'Accept'       => 'application/json',
-                'Content-Type' => 'application/json',
-                'User-Agent'   => 'DigitalRoyaltyBeacon/' . (defined('DR_BEACON_VERSION') ? DR_BEACON_VERSION : 'dev'),
-            ],
+            'headers'     => $headers,
+            'body'        => wp_json_encode($payload),
         ];
-
-        if ($apiKey) {
-            $args['headers']['Authorization'] = 'Bearer ' . $apiKey;
-        }
-
-        if (!empty($payload)) {
-            $args['body'] = wp_json_encode($payload);
-        }
 
         $response = wp_remote_request($url, $args);
 
@@ -112,6 +146,25 @@ final class ApiClient
             message: $data['message'] ?? null,
             data: $data
         );
+    }
+
+    /**
+     * Merge standard client meta into payload.
+     * Meta overwrites any spoofed values.
+     */
+    private function withClientMeta(array $payload): array
+    {
+        return array_merge($payload, [
+            'site_url'       => home_url('/'),
+            'wp_version'     => get_bloginfo('version'),
+            'php_version'    => PHP_VERSION,
+            'plugin_version' => defined('DR_BEACON_VERSION') ? DR_BEACON_VERSION : null,
+        ]);
+    }
+
+    private function userAgent(): string
+    {
+        return 'DigitalRoyaltyBeacon/' . (defined('DR_BEACON_VERSION') ? DR_BEACON_VERSION : 'dev');
     }
 
     private function endpoint(string $path): string

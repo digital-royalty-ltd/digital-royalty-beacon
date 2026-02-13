@@ -2,8 +2,13 @@
 
 namespace DigitalRoyalty\Beacon;
 
-use DigitalRoyalty\Beacon\Admin\SettingsPage;
+use DigitalRoyalty\Beacon\Admin\Actions\Reports\ReportAdminActions;
+use DigitalRoyalty\Beacon\Admin\Config\AdminMenu;
+use DigitalRoyalty\Beacon\Admin\Pages\DebugPage;
+use DigitalRoyalty\Beacon\Admin\Pages\HomePage;
+use DigitalRoyalty\Beacon\Database\ReportsTable;
 use DigitalRoyalty\Beacon\Rest\RestService;
+use DigitalRoyalty\Beacon\Systems\Reports\ReportService;
 
 final class Plugin
 {
@@ -19,9 +24,26 @@ final class Plugin
 
     public function boot(): void
     {
-        // Admin UI
+        // Ensure DB schema exists (activation hooks can be missed on some hosts).
         if (is_admin()) {
-            (new SettingsPage())->register();
+            ReportsTable::install();
+        }
+
+        // Services
+        (new ReportService())->register();
+
+        // Admin Actions
+        (new ReportAdminActions())->register();
+
+        // Admin Pages
+        if (is_admin()) {
+            $home = new HomePage();
+            $home->register();
+
+            $debug = new DebugPage();
+            $debug->register();
+
+            (new AdminMenu($home, $debug))->register();
         }
 
         // REST API endpoints
@@ -30,8 +52,7 @@ final class Plugin
 
     public static function activate(): void
     {
-        // Later: create custom tables, default options, etc.
-        // Keep it safe and minimal for now.
+        ReportsTable::install();
     }
 
     public static function deactivate(): void
