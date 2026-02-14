@@ -40,16 +40,13 @@ final class AdminMenu
             [$this->homePage, 'render']
         );
 
-        // Optional: Debug submenu
-        if (method_exists($this->debugPage, 'isEnabled') ? $this->debugPage->isEnabled() : true) {
-            add_submenu_page(
-                self::PARENT_SLUG,
-                'Debug',
-                'Debug',
-                'manage_options',
-                DebugPage::SLUG,
-                [$this->debugPage, 'render']
-            );
-        }
+        add_submenu_page(
+            self::PARENT_SLUG,
+            'Debug',
+            'Debug',
+            'manage_options',
+            DebugPage::SLUG,
+            [$this->debugPage, 'render']
+        );
     }
 }

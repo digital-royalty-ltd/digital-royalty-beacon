@@ -2,15 +2,32 @@
 
 namespace DigitalRoyalty\Beacon\Services;
 
+use DigitalRoyalty\Beacon\Support\Logger;
 use DigitalRoyalty\Beacon\Systems\Api\ApiClient;
 use DigitalRoyalty\Beacon\Systems\Reports\ReportSubmitter;
+use wpdb;
 
 final class Services
 {
     private const OPTION_API_KEY = 'dr_beacon_api_key';
 
+    private static ?Logger $logger = null;
     private static ?ApiClient $apiClient = null;
     private static ?ReportSubmitter $reportSubmitter = null;
+
+    public static function logger(): Logger
+    {
+        if (self::$logger instanceof Logger) {
+            return self::$logger;
+        }
+
+        global $wpdb;
+
+        /** @var wpdb $wpdb */
+        self::$logger = new Logger($wpdb);
+
+        return self::$logger;
+    }
 
     public static function apiClient(): ApiClient
     {
@@ -43,5 +60,6 @@ final class Services
     {
         self::$apiClient = null;
         self::$reportSubmitter = null;
+        self::$logger = null;
     }
 }

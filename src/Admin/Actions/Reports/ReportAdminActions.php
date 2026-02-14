@@ -3,6 +3,8 @@
 namespace DigitalRoyalty\Beacon\Admin\Actions\Reports;
 
 use DigitalRoyalty\Beacon\Repositories\ReportsRepository;
+use DigitalRoyalty\Beacon\Services\Services;
+use DigitalRoyalty\Beacon\Support\Enums\Logging\LogScope;
 use DigitalRoyalty\Beacon\Systems\Reports\ReportManager;
 use DigitalRoyalty\Beacon\Systems\Reports\ReportRegistry;
 
@@ -22,11 +24,14 @@ final class ReportAdminActions
     public function start(): void
     {
         if (!current_user_can('manage_options')) {
+            Services::logger()->warning(LogScope::ADMIN, 'reports_start_forbidden', 'Forbidden: missing capability manage_options.');
             wp_die('Forbidden');
         }
 
         check_admin_referer(self::ACTION_START);
 
+        Services::logger()->info(LogScope::ADMIN, 'reports_start_requested', 'Scans start requested.');
+
         global $wpdb;
 
         $manager = new ReportManager(
@@ -34,58 +39,94 @@ final class ReportAdminActions
             new ReportsRepository($wpdb)
         );
 
-        $manager->start();
+        try {
+            $manager->start();
 
-        wp_safe_redirect(admin_url('admin.php?page=dr-beacon'));
-        exit;
+            Services::logger()->info(LogScope::ADMIN, 'reports_start_success', 'Scans started.');
+            $this->redirect(true, 'Scans started.');
+        } catch (\Throwable $e) {
+            Services::logger()->error(LogScope::ADMIN, 'reports_start_failed', $e->getMessage());
+            $this->redirect(false, 'Failed to start scans.');
+        }
     }
 
     public function retrySubmit(): void
     {
         if (!current_user_can('manage_options')) {
+            Services::logger()->warning(LogScope::ADMIN, 'reports_retry_submit_forbidden', 'Forbidden: missing capability manage_options.');
             wp_die('Forbidden');
         }
 
         check_admin_referer(self::ACTION_RETRY_SUBMIT);
 
-        $type = isset($_GET['type']) ? sanitize_key((string) $_GET['type']) : '';
-        $version = isset($_GET['version']) ? (int) $_GET['version'] : 0;
+        $type = isset($_REQUEST['type']) ? sanitize_key((string) $_REQUEST['type']) : '';
+        $version = isset($_REQUEST['version']) ? (int) $_REQUEST['version'] : 0;
 
         if ($type === '' || $version <= 0) {
-            wp_safe_redirect(admin_url('admin.php?page=dr-beacon'));
-            exit;
+            Services::logger()->warning(LogScope::ADMIN, 'reports_retry_submit_invalid', 'Missing report type or version.', [
+                'type' => $type,
+                'version' => $version,
+            ]);
+
+            $this->redirect(false, 'Missing report type or version.');
         }
+
+        Services::logger()->info(LogScope::ADMIN, 'reports_retry_submit_requested', 'Retry submit requested.', [
+            'type' => $type,
+            'version' => $version,
+        ]);
 
         global $wpdb;
 
-        // Queue just a submit attempt via the normal run path (will regenerate by default).
-        // If you want "submit only", we can add a dedicated action later.
         $manager = new ReportManager(
             new ReportRegistry(),
             new ReportsRepository($wpdb)
         );
 
-        $manager->enqueueReport($type, $version);
+        try {
+            $manager->enqueueReport($type, $version);
 
-        wp_safe_redirect(admin_url('admin.php?page=dr-beacon'));
-        exit;
+            Services::logger()->info(LogScope::ADMIN, 'reports_retry_submit_queued', 'Retry submit queued.', [
+                'type' => $type,
+                'version' => $version,
+            ]);
+
+            $this->redirect(true, "Queued retry submit for {$type} v{$version}.");
+        } catch (\Throwable $e) {
+            Services::logger()->error(LogScope::ADMIN, 'reports_retry_submit_failed', $e->getMessage(), [
+                'type' => $type,
+                'version' => $version,
+            ]);
+
+            $this->redirect(false, 'Failed to queue retry submit.');
+        }
     }
 
     public function rerun(): void
     {
         if (!current_user_can('manage_options')) {
+            Services::logger()->warning(LogScope::ADMIN, 'reports_rerun_forbidden', 'Forbidden: missing capability manage_options.');
             wp_die('Forbidden');
         }
 
         check_admin_referer(self::ACTION_RERUN);
 
-        $type = isset($_GET['type']) ? sanitize_key((string) $_GET['type']) : '';
-        $version = isset($_GET['version']) ? (int) $_GET['version'] : 0;
+        $type = isset($_REQUEST['type']) ? sanitize_key((string) $_REQUEST['type']) : '';
+        $version = isset($_REQUEST['version']) ? (int) $_REQUEST['version'] : 0;
 
         if ($type === '' || $version <= 0) {
-            wp_safe_redirect(admin_url('admin.php?page=dr-beacon'));
-            exit;
+            Services::logger()->warning(LogScope::ADMIN, 'reports_rerun_invalid', 'Missing report type or version.', [
+                'type' => $type,
+                'version' => $version,
+            ]);
+
+            $this->redirect(false, 'Missing report type or version.');
         }
+
+        Services::logger()->info(LogScope::ADMIN, 'reports_rerun_requested', 'Rerun requested.', [
+            'type' => $type,
+            'version' => $version,
+        ]);
 
         global $wpdb;
 
@@ -94,9 +135,34 @@ final class ReportAdminActions
             new ReportsRepository($wpdb)
         );
 
-        $manager->enqueueReport($type, $version);
+        try {
+            $manager->enqueueReport($type, $version);
 
-        wp_safe_redirect(admin_url('admin.php?page=dr-beacon'));
+            Services::logger()->info(LogScope::ADMIN, 'reports_rerun_queued', 'Rerun queued.', [
+                'type' => $type,
+                'version' => $version,
+            ]);
+
+            $this->redirect(true, "Queued rerun for {$type} v{$version}.");
+        } catch (\Throwable $e) {
+            Services::logger()->error(LogScope::ADMIN, 'reports_rerun_failed', $e->getMessage(), [
+                'type' => $type,
+                'version' => $version,
+            ]);
+
+            $this->redirect(false, 'Failed to queue rerun.');
+        }
+    }
+
+    private function redirect(bool $ok, string $msg): void
+    {
+        $url = add_query_arg([
+            'page' => 'dr-beacon',
+            'dr_beacon_ok' => $ok ? '1' : '0',
+            'dr_beacon_msg' => rawurlencode($msg),
+        ], admin_url('admin.php'));
+
+        wp_safe_redirect($url);
         exit;
     }
 }
