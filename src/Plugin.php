@@ -2,12 +2,19 @@
 
 namespace DigitalRoyalty\Beacon;
 
-use DigitalRoyalty\Beacon\Admin\Actions\Pages\DebugPageAdminActions;
-use DigitalRoyalty\Beacon\Admin\Actions\Pages\HomePageAdminActions;
+use DigitalRoyalty\Beacon\Admin\Actions\Views\DebugPageAdminActions;
+use DigitalRoyalty\Beacon\Admin\Actions\Views\HomePageAdminActions;
 use DigitalRoyalty\Beacon\Admin\Actions\Reports\ReportAdminActions;
 use DigitalRoyalty\Beacon\Admin\Config\AdminMenu;
-use DigitalRoyalty\Beacon\Admin\Pages\DebugPage;
-use DigitalRoyalty\Beacon\Admin\Pages\HomePage;
+use DigitalRoyalty\Beacon\Admin\Screens\ConfigurationScreen;
+use DigitalRoyalty\Beacon\Admin\Screens\DebugScreen;
+use DigitalRoyalty\Beacon\Admin\Screens\HomeScreen;
+use DigitalRoyalty\Beacon\Admin\Screens\ScreenRegistry;
+use DigitalRoyalty\Beacon\Admin\Screens\ToolsScreen;
+use DigitalRoyalty\Beacon\Admin\Views\ConfigurationView;
+use DigitalRoyalty\Beacon\Admin\Views\DebugView;
+use DigitalRoyalty\Beacon\Admin\Views\HomeView;
+use DigitalRoyalty\Beacon\Admin\Views\ToolsView;
 use DigitalRoyalty\Beacon\Database\LogsTable;
 use DigitalRoyalty\Beacon\Database\ReportsTable;
 use DigitalRoyalty\Beacon\Rest\RestService;
@@ -36,17 +43,29 @@ final class Plugin
         // Services
         (new ReportService())->register();
 
-        // Admin Actions
+        // Admin Actions (existing)
         (new ReportAdminActions())->register();
         (new HomePageAdminActions())->register();
         (new DebugPageAdminActions())->register();
 
-        // Admin Pages
+        // Admin UI (new Screens/Views system)
         if (is_admin()) {
-            $home = new HomePage();
-            $debug = new DebugPage();
+            // Views
+            $homeView = new HomeView();
+            $toolsView = new ToolsView();
+            $configurationView = new ConfigurationView();
+            $debugView = new DebugView();
 
-            (new AdminMenu($home, $debug))->register();
+            // Screens
+            $screenRegistry = new ScreenRegistry([
+                new HomeScreen($homeView),
+                new ToolsScreen($toolsView),
+                new ConfigurationScreen($configurationView),
+                new DebugScreen($debugView),
+            ]);
+
+            // Menu
+            (new AdminMenu($screenRegistry))->register();
         }
 
         // REST API endpoints

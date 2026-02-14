@@ -4,7 +4,7 @@ namespace DigitalRoyalty\Beacon\Systems\Reports;
 
 use DigitalRoyalty\Beacon\Repositories\ReportsRepository;
 use DigitalRoyalty\Beacon\Services\Services;
-use DigitalRoyalty\Beacon\Support\Enums\Logging\LogScope;
+use DigitalRoyalty\Beacon\Support\Enums\Logging\LogScopeEnum;
 
 final class ReportRunner
 {
@@ -18,7 +18,7 @@ final class ReportRunner
     {
         update_option('dr_beacon_last_runner_heartbeat', current_time('mysql'), false);
 
-        Services::logger()->info(LogScope::REPORTS, 'runner_start', 'Report runner started.', [
+        Services::logger()->info(LogScopeEnum::REPORTS, 'runner_start', 'Report runner started.', [
             'type' => $type,
             'version' => $version,
         ]);
@@ -28,7 +28,7 @@ final class ReportRunner
             $msg = 'Unknown report type/version.';
             $this->reports->markFailed($type, $version, $msg);
 
-            Services::logger()->error(LogScope::REPORTS, 'runner_unknown_report', $msg, [
+            Services::logger()->error(LogScopeEnum::REPORTS, 'runner_unknown_report', $msg, [
                 'type' => $type,
                 'version' => $version,
             ]);
@@ -44,7 +44,7 @@ final class ReportRunner
                 $msg = 'Failed to encode report JSON.';
                 $this->reports->markFailed($type, $version, $msg);
 
-                Services::logger()->error(LogScope::REPORTS, 'runner_json_encode_failed', $msg, [
+                Services::logger()->error(LogScopeEnum::REPORTS, 'runner_json_encode_failed', $msg, [
                     'type' => $type,
                     'version' => $version,
                 ]);
@@ -57,7 +57,7 @@ final class ReportRunner
 
             $this->reports->upsertGenerated($type, $version, $payloadJson, $hash, $generatedAt);
 
-            Services::logger()->info(LogScope::REPORTS, 'runner_generated', 'Report generated and stored.', [
+            Services::logger()->info(LogScopeEnum::REPORTS, 'runner_generated', 'Report generated and stored.', [
                 'type' => $type,
                 'version' => $version,
                 'hash' => $hash,
@@ -73,7 +73,7 @@ final class ReportRunner
                 'data' => $data,
             ];
 
-            Services::logger()->info(LogScope::REPORTS, 'runner_submit_attempt', 'Submitting report envelope.', [
+            Services::logger()->info(LogScopeEnum::REPORTS, 'runner_submit_attempt', 'Submitting report envelope.', [
                 'type' => $type,
                 'version' => $version,
             ]);
@@ -87,7 +87,7 @@ final class ReportRunner
 
                 $this->reports->markFailed($type, $version, $msg);
 
-                Services::logger()->error(LogScope::REPORTS, 'runner_submit_failed', $msg, [
+                Services::logger()->error(LogScopeEnum::REPORTS, 'runner_submit_failed', $msg, [
                     'type' => $type,
                     'version' => $version,
                     'status_code' => $code,
@@ -99,7 +99,7 @@ final class ReportRunner
             $submittedAt = current_time('mysql');
             $this->reports->markSubmitted($type, $version, $submittedAt);
 
-            Services::logger()->info(LogScope::REPORTS, 'runner_submit_success', 'Report submitted successfully.', [
+            Services::logger()->info(LogScopeEnum::REPORTS, 'runner_submit_success', 'Report submitted successfully.', [
                 'type' => $type,
                 'version' => $version,
                 'submitted_at' => $submittedAt,
@@ -107,7 +107,7 @@ final class ReportRunner
         } catch (\Throwable $e) {
             $this->reports->markFailed($type, $version, $e->getMessage());
 
-            Services::logger()->error(LogScope::REPORTS, 'runner_exception', $e->getMessage(), [
+            Services::logger()->error(LogScopeEnum::REPORTS, 'runner_exception', $e->getMessage(), [
                 'type' => $type,
                 'version' => $version,
                 'exception' => get_class($e),

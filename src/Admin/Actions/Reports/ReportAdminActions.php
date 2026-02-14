@@ -4,7 +4,7 @@ namespace DigitalRoyalty\Beacon\Admin\Actions\Reports;
 
 use DigitalRoyalty\Beacon\Repositories\ReportsRepository;
 use DigitalRoyalty\Beacon\Services\Services;
-use DigitalRoyalty\Beacon\Support\Enums\Logging\LogScope;
+use DigitalRoyalty\Beacon\Support\Enums\Logging\LogScopeEnum;
 use DigitalRoyalty\Beacon\Systems\Reports\ReportManager;
 use DigitalRoyalty\Beacon\Systems\Reports\ReportRegistry;
 
@@ -24,13 +24,13 @@ final class ReportAdminActions
     public function start(): void
     {
         if (!current_user_can('manage_options')) {
-            Services::logger()->warning(LogScope::ADMIN, 'reports_start_forbidden', 'Forbidden: missing capability manage_options.');
+            Services::logger()->warning(LogScopeEnum::ADMIN, 'reports_start_forbidden', 'Forbidden: missing capability manage_options.');
             wp_die('Forbidden');
         }
 
         check_admin_referer(self::ACTION_START);
 
-        Services::logger()->info(LogScope::ADMIN, 'reports_start_requested', 'Scans start requested.');
+        Services::logger()->info(LogScopeEnum::ADMIN, 'reports_start_requested', 'Scans start requested.');
 
         global $wpdb;
 
@@ -42,10 +42,10 @@ final class ReportAdminActions
         try {
             $manager->start();
 
-            Services::logger()->info(LogScope::ADMIN, 'reports_start_success', 'Scans started.');
+            Services::logger()->info(LogScopeEnum::ADMIN, 'reports_start_success', 'Scans started.');
             $this->redirect(true, 'Scans started.');
         } catch (\Throwable $e) {
-            Services::logger()->error(LogScope::ADMIN, 'reports_start_failed', $e->getMessage());
+            Services::logger()->error(LogScopeEnum::ADMIN, 'reports_start_failed', $e->getMessage());
             $this->redirect(false, 'Failed to start scans.');
         }
     }
@@ -53,7 +53,7 @@ final class ReportAdminActions
     public function retrySubmit(): void
     {
         if (!current_user_can('manage_options')) {
-            Services::logger()->warning(LogScope::ADMIN, 'reports_retry_submit_forbidden', 'Forbidden: missing capability manage_options.');
+            Services::logger()->warning(LogScopeEnum::ADMIN, 'reports_retry_submit_forbidden', 'Forbidden: missing capability manage_options.');
             wp_die('Forbidden');
         }
 
@@ -63,7 +63,7 @@ final class ReportAdminActions
         $version = isset($_REQUEST['version']) ? (int) $_REQUEST['version'] : 0;
 
         if ($type === '' || $version <= 0) {
-            Services::logger()->warning(LogScope::ADMIN, 'reports_retry_submit_invalid', 'Missing report type or version.', [
+            Services::logger()->warning(LogScopeEnum::ADMIN, 'reports_retry_submit_invalid', 'Missing report type or version.', [
                 'type' => $type,
                 'version' => $version,
             ]);
@@ -71,7 +71,7 @@ final class ReportAdminActions
             $this->redirect(false, 'Missing report type or version.');
         }
 
-        Services::logger()->info(LogScope::ADMIN, 'reports_retry_submit_requested', 'Retry submit requested.', [
+        Services::logger()->info(LogScopeEnum::ADMIN, 'reports_retry_submit_requested', 'Retry submit requested.', [
             'type' => $type,
             'version' => $version,
         ]);
@@ -86,14 +86,14 @@ final class ReportAdminActions
         try {
             $manager->enqueueReport($type, $version);
 
-            Services::logger()->info(LogScope::ADMIN, 'reports_retry_submit_queued', 'Retry submit queued.', [
+            Services::logger()->info(LogScopeEnum::ADMIN, 'reports_retry_submit_queued', 'Retry submit queued.', [
                 'type' => $type,
                 'version' => $version,
             ]);
 
             $this->redirect(true, "Queued retry submit for {$type} v{$version}.");
         } catch (\Throwable $e) {
-            Services::logger()->error(LogScope::ADMIN, 'reports_retry_submit_failed', $e->getMessage(), [
+            Services::logger()->error(LogScopeEnum::ADMIN, 'reports_retry_submit_failed', $e->getMessage(), [
                 'type' => $type,
                 'version' => $version,
             ]);
@@ -105,7 +105,7 @@ final class ReportAdminActions
     public function rerun(): void
     {
         if (!current_user_can('manage_options')) {
-            Services::logger()->warning(LogScope::ADMIN, 'reports_rerun_forbidden', 'Forbidden: missing capability manage_options.');
+            Services::logger()->warning(LogScopeEnum::ADMIN, 'reports_rerun_forbidden', 'Forbidden: missing capability manage_options.');
             wp_die('Forbidden');
         }
 
@@ -115,7 +115,7 @@ final class ReportAdminActions
         $version = isset($_REQUEST['version']) ? (int) $_REQUEST['version'] : 0;
 
         if ($type === '' || $version <= 0) {
-            Services::logger()->warning(LogScope::ADMIN, 'reports_rerun_invalid', 'Missing report type or version.', [
+            Services::logger()->warning(LogScopeEnum::ADMIN, 'reports_rerun_invalid', 'Missing report type or version.', [
                 'type' => $type,
                 'version' => $version,
             ]);
@@ -123,7 +123,7 @@ final class ReportAdminActions
             $this->redirect(false, 'Missing report type or version.');
         }
 
-        Services::logger()->info(LogScope::ADMIN, 'reports_rerun_requested', 'Rerun requested.', [
+        Services::logger()->info(LogScopeEnum::ADMIN, 'reports_rerun_requested', 'Rerun requested.', [
             'type' => $type,
             'version' => $version,
         ]);
@@ -138,14 +138,14 @@ final class ReportAdminActions
         try {
             $manager->enqueueReport($type, $version);
 
-            Services::logger()->info(LogScope::ADMIN, 'reports_rerun_queued', 'Rerun queued.', [
+            Services::logger()->info(LogScopeEnum::ADMIN, 'reports_rerun_queued', 'Rerun queued.', [
                 'type' => $type,
                 'version' => $version,
             ]);
 
             $this->redirect(true, "Queued rerun for {$type} v{$version}.");
         } catch (\Throwable $e) {
-            Services::logger()->error(LogScope::ADMIN, 'reports_rerun_failed', $e->getMessage(), [
+            Services::logger()->error(LogScopeEnum::ADMIN, 'reports_rerun_failed', $e->getMessage(), [
                 'type' => $type,
                 'version' => $version,
             ]);

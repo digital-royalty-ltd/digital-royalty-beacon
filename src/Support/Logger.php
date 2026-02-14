@@ -3,7 +3,7 @@
 namespace DigitalRoyalty\Beacon\Support;
 
 use DigitalRoyalty\Beacon\Database\LogsTable;
-use DigitalRoyalty\Beacon\Support\Enums\Logging\LogLevel;
+use DigitalRoyalty\Beacon\Support\Enums\Logging\LogLevelEnum;
 use wpdb;
 
 final class Logger
@@ -19,7 +19,7 @@ final class Logger
      */
     public function debug(string $scope, string $event, string $message = '', array $context = []): void
     {
-        $this->log(LogLevel::DEBUG, $scope, $event, $message, $context);
+        $this->log(LogLevelEnum::DEBUG, $scope, $event, $message, $context);
     }
 
     /**
@@ -27,7 +27,7 @@ final class Logger
      */
     public function info(string $scope, string $event, string $message = '', array $context = []): void
     {
-        $this->log(LogLevel::INFO, $scope, $event, $message, $context);
+        $this->log(LogLevelEnum::INFO, $scope, $event, $message, $context);
     }
 
     /**
@@ -35,7 +35,7 @@ final class Logger
      */
     public function warning(string $scope, string $event, string $message = '', array $context = []): void
     {
-        $this->log(LogLevel::WARNING, $scope, $event, $message, $context);
+        $this->log(LogLevelEnum::WARNING, $scope, $event, $message, $context);
     }
 
     /**
@@ -43,7 +43,7 @@ final class Logger
      */
     public function error(string $scope, string $event, string $message = '', array $context = []): void
     {
-        $this->log(LogLevel::ERROR, $scope, $event, $message, $context);
+        $this->log(LogLevelEnum::ERROR, $scope, $event, $message, $context);
     }
 
     /**
@@ -156,11 +156,11 @@ final class Logger
         $level = strtolower(trim($level));
 
         return match ($level) {
-            LogLevel::DEBUG,
-            LogLevel::INFO,
-            LogLevel::WARNING,
-            LogLevel::ERROR => $level,
-            default => LogLevel::INFO,
+            LogLevelEnum::DEBUG,
+            LogLevelEnum::INFO,
+            LogLevelEnum::WARNING,
+            LogLevelEnum::ERROR => $level,
+            default => LogLevelEnum::INFO,
         };
     }
 

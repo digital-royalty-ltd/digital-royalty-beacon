@@ -3,7 +3,7 @@
 namespace DigitalRoyalty\Beacon\Systems\Reports;
 
 use DigitalRoyalty\Beacon\Services\Services;
-use DigitalRoyalty\Beacon\Support\Enums\Logging\LogScope;
+use DigitalRoyalty\Beacon\Support\Enums\Logging\LogScopeEnum;
 
 final class ReportSubmitter
 {
@@ -24,7 +24,7 @@ final class ReportSubmitter
             ? (string) $envelope['report_version']
             : (isset($envelope['version']) ? (string) $envelope['version'] : null);
 
-        Services::logger()->info(LogScope::REPORTS, 'submitter_prepare', 'Preparing report submission payload.', [
+        Services::logger()->info(LogScopeEnum::REPORTS, 'submitter_prepare', 'Preparing report submission payload.', [
             'envelope_id' => $envelopeId,
             'report_type' => $reportType,
             'report_version' => $reportVersion,
@@ -39,7 +39,7 @@ final class ReportSubmitter
         ];
 
         if ($payload['report_type'] === '' || $payload['payload'] === null) {
-            Services::logger()->warning(LogScope::REPORTS, 'submitter_invalid_payload', 'Report submission payload missing required fields.', [
+            Services::logger()->warning(LogScopeEnum::REPORTS, 'submitter_invalid_payload', 'Report submission payload missing required fields.', [
                 'envelope_id' => $envelopeId,
                 'report_type' => $payload['report_type'],
                 'has_payload' => $payload['payload'] !== null,
@@ -48,7 +48,7 @@ final class ReportSubmitter
 
         $client = Services::apiClient();
 
-        Services::logger()->info(LogScope::REPORTS, 'submitter_request', 'Submitting report to API.', [
+        Services::logger()->info(LogScopeEnum::REPORTS, 'submitter_request', 'Submitting report to API.', [
             'envelope_id' => $envelopeId,
             'report_type' => $reportType,
             'report_version' => $reportVersion,
@@ -59,7 +59,7 @@ final class ReportSubmitter
         if (!$response->isOk()) {
             $error = $response->message ?? 'Report submission failed.';
 
-            Services::logger()->error(LogScope::REPORTS, 'submitter_failed', $error, [
+            Services::logger()->error(LogScopeEnum::REPORTS, 'submitter_failed', $error, [
                 'envelope_id' => $envelopeId,
                 'report_type' => $reportType,
                 'report_version' => $reportVersion,
@@ -74,7 +74,7 @@ final class ReportSubmitter
             ];
         }
 
-        Services::logger()->info(LogScope::REPORTS, 'submitter_success', 'Report submitted successfully.', [
+        Services::logger()->info(LogScopeEnum::REPORTS, 'submitter_success', 'Report submitted successfully.', [
             'envelope_id' => $envelopeId,
             'report_type' => $reportType,
             'report_version' => $reportVersion,

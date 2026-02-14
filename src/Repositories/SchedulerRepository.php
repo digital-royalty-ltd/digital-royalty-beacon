@@ -2,7 +2,7 @@
 
 namespace DigitalRoyalty\Beacon\Repositories;
 
-use DigitalRoyalty\Beacon\Support\Enums\Scheduler\SchedulerGroup;
+use DigitalRoyalty\Beacon\Support\Enums\Scheduler\SchedulerGroupEnum;
 
 final class SchedulerRepository
 {
@@ -27,7 +27,7 @@ final class SchedulerRepository
         $groupId = (int) $this->wpdb->get_var(
             $this->wpdb->prepare(
                 "SELECT group_id FROM {$groupsTable} WHERE slug = %s LIMIT 1",
-                SchedulerGroup::BEACON
+                SchedulerGroupEnum::BEACON
             )
         );
 
