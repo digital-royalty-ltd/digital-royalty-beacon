@@ -8,22 +8,13 @@ use DigitalRoyalty\Beacon\Admin\Tools\MetaGeneratorPage;
 use DigitalRoyalty\Beacon\Admin\Tools\GapSuggestionsPage;
 use DigitalRoyalty\Beacon\Repositories\ReportsRepository;
 use DigitalRoyalty\Beacon\Admin\Actions\Reports\ReportAdminActions;
-use DigitalRoyalty\Beacon\Services\Services;
-use DigitalRoyalty\Beacon\Systems\Api\ApiClient;
 use DigitalRoyalty\Beacon\Systems\Reports\ReportManager;
 use DigitalRoyalty\Beacon\Systems\Reports\ReportRegistry;
+use DigitalRoyalty\Beacon\Support\Enums\Admin\HomePageAction;
+use DigitalRoyalty\Beacon\Support\Enums\Admin\HomePageOption;
 
 final class HomePage
 {
-    private const OPTION_API_KEY = 'dr_beacon_api_key';
-    private const OPTION_SITE_ID = 'dr_beacon_site_id';
-    private const OPTION_CONNECTED_AT = 'dr_beacon_connected_at';
-
-    // Legacy scan options (kept for now, but not used for gating tools anymore)
-    private const OPTION_HAS_SCAN = 'dr_beacon_has_scan';
-    private const OPTION_LAST_SCAN_AT = 'dr_beacon_last_scan_at';
-    private const OPTION_SCAN_JOB_ID = 'dr_beacon_scan_job_id';
-
     /** @var ToolPageInterface[] */
     private array $tools;
 
@@ -36,21 +27,15 @@ final class HomePage
         ];
     }
 
-    public function register(): void
-    {
-        add_action('admin_post_dr_beacon_verify_save', [$this, 'handleVerifyAndSave']);
-        add_action('admin_post_dr_beacon_disconnect', [$this, 'handleDisconnect']);
-    }
-
     public function render(): void
     {
         if (!current_user_can('manage_options')) {
             return;
         }
 
-        $apiKey      = (string) get_option(self::OPTION_API_KEY, '');
-        $siteId      = (string) get_option(self::OPTION_SITE_ID, '');
-        $connectedAt = (string) get_option(self::OPTION_CONNECTED_AT, '');
+        $apiKey      = (string) get_option(HomePageOption::API_KEY, '');
+        $siteId      = (string) get_option(HomePageOption::SITE_ID, '');
+        $connectedAt = (string) get_option(HomePageOption::CONNECTED_AT, '');
 
         $isConnected = ($apiKey !== '' && $siteId !== '');
 
@@ -114,8 +99,8 @@ final class HomePage
             </p>
 
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-                <input type="hidden" name="action" value="dr_beacon_verify_save" />
-                <?php wp_nonce_field('dr_beacon_verify_save'); ?>
+                <input type="hidden" name="action" value="<?php echo esc_attr(HomePageAction::VERIFY_SAVE); ?>" />
+                <?php wp_nonce_field(HomePageAction::VERIFY_SAVE); ?>
 
                 <table class="form-table" role="presentation" style="margin-top:0;">
                     <tr>
@@ -150,11 +135,6 @@ final class HomePage
 
         $manager = $this->reportsManager();
         $effectiveStatus = $manager->getEffectiveStatus();
-        
-        $startUrl = wp_nonce_url(
-                admin_url('admin-post.php?action=' . rawurlencode(ReportAdminActions::ACTION_START)),
-                ReportAdminActions::ACTION_START
-        );
 
         ?>
         <p><strong>Status:</strong> <?php echo esc_html('Connected'); ?></p>
@@ -177,8 +157,8 @@ final class HomePage
             </p>
 
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0;display:flex;justify-content:flex-end;gap:8px;">
-                <input type="hidden" name="action" value="dr_beacon_disconnect" />
-                <?php wp_nonce_field('dr_beacon_disconnect'); ?>
+                <input type="hidden" name="action" value="<?php echo esc_attr(HomePageAction::DISCONNECT); ?>" />
+                <?php wp_nonce_field(HomePageAction::DISCONNECT); ?>
                 <?php submit_button('Disconnect', 'secondary', 'submit', false); ?>
             </form>
 
@@ -195,9 +175,11 @@ final class HomePage
             </p>
 
             <?php if ($effectiveStatus === ReportManager::STATUS_NOT_STARTED) : ?>
-                <p style="margin:0 0 14px;">
-                    <a class="button button-primary" href="<?php echo esc_url($startUrl); ?>">Start scans</a>
-                </p>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0 0 14px;">
+                    <input type="hidden" name="action" value="<?php echo esc_attr(ReportAdminActions::ACTION_START); ?>" />
+                    <?php wp_nonce_field(ReportAdminActions::ACTION_START); ?>
+                    <?php submit_button('Start scans', 'primary', 'submit', false); ?>
+                </form>
                 <?php elseif ($effectiveStatus === ReportManager::STATUS_RUNNING) : ?>
                 <div class="notice notice-info" style="margin:0 0 12px;">
                     <p style="margin:0;">Scans are running in the background. You can leave this page and come back.</p>
@@ -228,11 +210,6 @@ final class HomePage
                     $rowStatus = is_array($row) ? (string) ($row['status'] ?? 'pending') : 'pending';
                     $lastError = is_array($row) ? (string) ($row['last_error'] ?? '') : '';
 
-                    $rerunUrl = wp_nonce_url(
-                            admin_url('admin-post.php?action=' . rawurlencode(ReportAdminActions::ACTION_RERUN) . '&type=' . rawurlencode($type) . '&version=' . rawurlencode((string) $version)),
-                            ReportAdminActions::ACTION_RERUN
-                    );
-
                     $badge = $this->statusBadge($rowStatus);
                     ?>
                     <tr>
@@ -246,7 +223,13 @@ final class HomePage
                             <?php if ($rowStatus === 'submitted') : ?>
                                 <span class="button disabled" style="pointer-events:none;opacity:0.65;">Complete</span>
                             <?php else : ?>
-                                <a class="button" href="<?php echo esc_url($rerunUrl); ?>">Retry</a>
+                                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0;display:inline;">
+                                    <input type="hidden" name="action" value="<?php echo esc_attr(ReportAdminActions::ACTION_RERUN); ?>" />
+                                    <input type="hidden" name="type" value="<?php echo esc_attr($type); ?>" />
+                                    <input type="hidden" name="version" value="<?php echo esc_attr((string) $version); ?>" />
+                                    <?php wp_nonce_field(ReportAdminActions::ACTION_RERUN); ?>
+                                    <?php submit_button('Retry', 'secondary', 'submit', false); ?>
+                                </form>
                             <?php endif; ?>
                         </td>
                     </tr>
@@ -284,8 +267,8 @@ final class HomePage
             </p>
 
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0;display:flex;justify-content:flex-end;gap:8px;">
-                <input type="hidden" name="action" value="dr_beacon_disconnect" />
-                <?php wp_nonce_field('dr_beacon_disconnect'); ?>
+                <input type="hidden" name="action" value="<?php echo esc_attr(HomePageAction::DISCONNECT); ?>" />
+                <?php wp_nonce_field(HomePageAction::DISCONNECT); ?>
                 <?php submit_button('Disconnect', 'secondary', 'submit', false); ?>
             </form>
 
@@ -340,81 +323,6 @@ final class HomePage
             }
         }
         return null;
-    }
-
-    public function handleVerifyAndSave(): void
-    {
-        if (!current_user_can('manage_options')) {
-            wp_die('Forbidden', 403);
-        }
-
-        check_admin_referer('dr_beacon_verify_save');
-
-        $apiKey = isset($_POST['dr_beacon_api_key'])
-                ? sanitize_text_field((string) $_POST['dr_beacon_api_key'])
-                : '';
-
-        if ($apiKey === '') {
-            $this->redirectWithMessage(false, 'API key is required.');
-        }
-
-        $client = new ApiClient($apiKey);
-        $res = $client->verifyApiKey();
-
-        if (!$res->isOk()) {
-            $msg = $res->message ?? ($res->isUnauthorized() ? 'Invalid API key.' : 'API key verification failed.');
-            $this->redirectWithMessage(false, $msg);
-        }
-
-        $siteId = (string) $res->get('site_id', '');
-        if ($siteId === '') {
-            $this->redirectWithMessage(false, 'Beacon API did not return a site_id.');
-        }
-
-        update_option(self::OPTION_API_KEY, $apiKey, false);
-        update_option(self::OPTION_SITE_ID, $siteId, false);
-        update_option(self::OPTION_CONNECTED_AT, gmdate('c'), false);
-
-        Services::reset();
-
-        $this->redirectWithMessage(true, 'Connected successfully.');
-    }
-
-    public function handleDisconnect(): void
-    {
-        if (!current_user_can('manage_options')) {
-            wp_die('Forbidden', 403);
-        }
-
-        check_admin_referer('dr_beacon_disconnect');
-
-        delete_option(self::OPTION_API_KEY);
-        delete_option(self::OPTION_SITE_ID);
-        delete_option(self::OPTION_CONNECTED_AT);
-
-        // Legacy scan options
-        delete_option(self::OPTION_HAS_SCAN);
-        delete_option(self::OPTION_LAST_SCAN_AT);
-        delete_option(self::OPTION_SCAN_JOB_ID);
-
-        // Reports onboarding
-        delete_option(ReportManager::OPTION_STATUS);
-
-        Services::reset();
-
-        $this->redirectWithMessage(true, 'Disconnected.');
-    }
-
-    private function redirectWithMessage(bool $ok, string $message): void
-    {
-        $url = add_query_arg([
-                'page' => 'dr-beacon',
-                'dr_beacon_ok' => $ok ? '1' : '0',
-                'dr_beacon_msg' => rawurlencode($message),
-        ], admin_url('admin.php'));
-
-        wp_safe_redirect($url);
-        exit;
     }
 
     private function toolUrl(string $tool): string

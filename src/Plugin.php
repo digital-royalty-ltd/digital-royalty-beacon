@@ -2,10 +2,13 @@
 
 namespace DigitalRoyalty\Beacon;
 
+use DigitalRoyalty\Beacon\Admin\Actions\Pages\DebugPageAdminActions;
+use DigitalRoyalty\Beacon\Admin\Actions\Pages\HomePageAdminActions;
 use DigitalRoyalty\Beacon\Admin\Actions\Reports\ReportAdminActions;
 use DigitalRoyalty\Beacon\Admin\Config\AdminMenu;
 use DigitalRoyalty\Beacon\Admin\Pages\DebugPage;
 use DigitalRoyalty\Beacon\Admin\Pages\HomePage;
+use DigitalRoyalty\Beacon\Database\LogsTable;
 use DigitalRoyalty\Beacon\Database\ReportsTable;
 use DigitalRoyalty\Beacon\Rest\RestService;
 use DigitalRoyalty\Beacon\Systems\Reports\ReportService;
@@ -26,6 +29,7 @@ final class Plugin
     {
         // Ensure DB schema exists (activation hooks can be missed on some hosts).
         if (is_admin()) {
+            LogsTable::install();
             ReportsTable::install();
         }
 
@@ -34,14 +38,13 @@ final class Plugin
 
         // Admin Actions
         (new ReportAdminActions())->register();
+        (new HomePageAdminActions())->register();
+        (new DebugPageAdminActions())->register();
 
         // Admin Pages
         if (is_admin()) {
             $home = new HomePage();
-            $home->register();
-
             $debug = new DebugPage();
-            $debug->register();
 
             (new AdminMenu($home, $debug))->register();
         }
@@ -52,6 +55,7 @@ final class Plugin
 
     public static function activate(): void
     {
+        LogsTable::install();
         ReportsTable::install();
     }
 

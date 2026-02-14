@@ -2,35 +2,38 @@
 
 namespace DigitalRoyalty\Beacon\Admin\Pages;
 
-use DigitalRoyalty\Beacon\Database\ReportsTable;
-use DigitalRoyalty\Beacon\Systems\Reports\ReportManager;
+use DigitalRoyalty\Beacon\Admin\Tables\LogsListTable;
+use DigitalRoyalty\Beacon\Repositories\LogsRepository;
+use DigitalRoyalty\Beacon\Support\Enums\Admin\DebugPageAction;
+use DigitalRoyalty\Beacon\Support\Enums\Admin\AdminPage;
+use DigitalRoyalty\Beacon\Support\Enums\Admin\AdminQuery;
+use DigitalRoyalty\Beacon\Admin\Tables\SchedulerListTable;
+use DigitalRoyalty\Beacon\Repositories\SchedulerRepository;
+
 
 final class DebugPage
 {
-    public const SLUG = 'dr-beacon-debug';
+    public const SLUG = AdminPage::DEBUG;
 
-    private const ACTION_CLEAR_REPORTS = 'dr_beacon_debug_clear_reports';
-    private const ACTION_RESET_STATUS = 'dr_beacon_debug_reset_status';
-    private const ACTION_FULL_RESET = 'dr_beacon_debug_full_reset';
-    private const ACTION_UNSCHEDULE = 'dr_beacon_debug_unschedule';
-
-    public function register(): void
-    {
-        add_action('admin_post_' . self::ACTION_CLEAR_REPORTS, [$this, 'handleClearReports']);
-        add_action('admin_post_' . self::ACTION_RESET_STATUS, [$this, 'handleResetStatus']);
-        add_action('admin_post_' . self::ACTION_FULL_RESET, [$this, 'handleFullReset']);
-        add_action('admin_post_' . self::ACTION_UNSCHEDULE, [$this, 'handleUnschedule']);
-    }
 
     public function render(): void
     {
-        if (!current_user_can('manage_options') || !$this->isEnabled()) {
+        if (!current_user_can('manage_options')) {
             return;
         }
 
-        $okParam = isset($_GET['dr_beacon_ok']) ? (string) $_GET['dr_beacon_ok'] : '0';
+        $okParam = isset($_GET[AdminQuery::OK]) ? (string) $_GET[AdminQuery::OK] : '0';
         $isOk = $okParam === '1';
-        $msg = isset($_GET['dr_beacon_msg']) ? (string) $_GET['dr_beacon_msg'] : '';
+        $msg = isset($_GET[AdminQuery::MSG]) ? (string) $_GET[AdminQuery::MSG] : '';
+
+        global $wpdb;
+        $logsRepo = new LogsRepository($wpdb);
+        $logsTable = new LogsListTable($logsRepo);
+        $logsTable->prepare_items();
+
+        $schedulerRepo = new SchedulerRepository($wpdb);
+        $schedulerTable = new SchedulerListTable($schedulerRepo);
+        $schedulerTable->prepare_items();
 
         ?>
         <div class="wrap">
@@ -46,13 +49,63 @@ final class DebugPage
                 Developer and advanced tools for resetting Beacon state.
             </p>
 
+            <div style="background:#fff;border:1px solid #ccd0d4;border-radius:10px;padding:16px;max-width:1200px;">
+                <h2 style="margin-top:0;">Logs</h2>
+                <p class="description">Newest first. Use pagination for older entries.</p>
+
+                <div style="display:flex;justify-content:flex-end;gap:8px;margin:0 0 10px;">
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0;">
+                        <input type="hidden" name="action" value="<?php echo esc_attr(DebugPageAction::CLEAR_LOGS); ?>">
+                        <?php wp_nonce_field(DebugPageAction::CLEAR_LOGS); ?>
+                        <?php submit_button('Clear logs', 'secondary', 'submit', false); ?>
+                    </form>
+                </div>
+
+
+                <form method="get" style="margin:0;">
+                    <input type="hidden" name="page" value="<?php echo esc_attr(self::SLUG); ?>" />
+                    <?php $logsTable->display(); ?>
+                </form>
+            </div>
+
+            <div style="height:16px;"></div>
+
+            <div style="background:#fff;border:1px solid #ccd0d4;border-radius:10px;padding:16px;max-width:1200px;">
+                <h2 style="margin-top:0;">Beacon scheduled actions</h2>
+                <p class="description">
+                    Action Scheduler entries in group <code>dr-beacon</code>.
+                </p>
+
+                <div style="display:flex;justify-content:flex-end;gap:8px;margin:0 0 10px;">
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0;">
+                        <input type="hidden" name="action" value="<?php echo esc_attr(DebugPageAction::CLEAR_SCHEDULER); ?>">
+                        <?php wp_nonce_field(DebugPageAction::CLEAR_SCHEDULER); ?>
+                        <?php submit_button('Clear completed scheduled actions', 'secondary', 'submit', false); ?>
+                    </form>
+                </div>
+
+                <?php if (!function_exists('as_get_scheduled_actions')) : ?>
+                    <div class="notice notice-warning" style="margin:0;">
+                        <p style="margin:0;">Action Scheduler not available.</p>
+                    </div>
+                <?php else : ?>
+                    <form method="get" style="margin:0;">
+                        <input type="hidden" name="page" value="<?php echo esc_attr(self::SLUG); ?>" />
+                        <?php $schedulerTable->display(); ?>
+                    </form>
+                <?php endif; ?>
+            </div>
+
+
+            <div style="height:16px;"></div>
+
             <div style="background:#fff;border:1px solid #ccd0d4;border-radius:10px;padding:16px;max-width:920px;">
                 <h2 style="margin-top:0;">Report snapshots</h2>
                 <p class="description">Deletes all rows from the report snapshots table.</p>
 
                 <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0;">
-                    <input type="hidden" name="action" value="<?php echo esc_attr(self::ACTION_CLEAR_REPORTS); ?>">
-                    <?php wp_nonce_field(self::ACTION_CLEAR_REPORTS); ?>
+                    <input type="hidden" name="action" value="<?php echo esc_attr(DebugPageAction::CLEAR_REPORTS); ?>">
+                    <?php wp_nonce_field(DebugPageAction::CLEAR_REPORTS); ?>
                     <?php submit_button('Delete saved report snapshots', 'secondary', 'submit', false); ?>
                 </form>
             </div>
@@ -64,8 +117,8 @@ final class DebugPage
                 <p class="description">Resets onboarding status so Beacon returns to the Start scans screen.</p>
 
                 <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0;">
-                    <input type="hidden" name="action" value="<?php echo esc_attr(self::ACTION_RESET_STATUS); ?>">
-                    <?php wp_nonce_field(self::ACTION_RESET_STATUS); ?>
+                    <input type="hidden" name="action" value="<?php echo esc_attr(DebugPageAction::RESET_STATUS); ?>">
+                    <?php wp_nonce_field(DebugPageAction::RESET_STATUS); ?>
                     <?php submit_button('Reset onboarding status', 'secondary', 'submit', false); ?>
                 </form>
             </div>
@@ -77,8 +130,8 @@ final class DebugPage
                 <p class="description">Removes queued Beacon report actions from Action Scheduler.</p>
 
                 <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0;">
-                    <input type="hidden" name="action" value="<?php echo esc_attr(self::ACTION_UNSCHEDULE); ?>">
-                    <?php wp_nonce_field(self::ACTION_UNSCHEDULE); ?>
+                    <input type="hidden" name="action" value="<?php echo esc_attr(DebugPageAction::UNSCHEDULE); ?>">
+                    <?php wp_nonce_field(DebugPageAction::UNSCHEDULE); ?>
                     <?php submit_button('Unschedule queued report jobs', 'secondary', 'submit', false); ?>
                 </form>
             </div>
@@ -92,120 +145,13 @@ final class DebugPage
                 </p>
 
                 <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0;">
-                    <input type="hidden" name="action" value="<?php echo esc_attr(self::ACTION_FULL_RESET); ?>">
-                    <?php wp_nonce_field(self::ACTION_FULL_RESET); ?>
+                    <input type="hidden" name="action" value="<?php echo esc_attr(DebugPageAction::FULL_RESET); ?>">
+                    <?php wp_nonce_field(DebugPageAction::FULL_RESET); ?>
                     <?php submit_button('Full reset', 'primary', 'submit', false); ?>
                 </form>
             </div>
+
         </div>
         <?php
-    }
-
-    public function handleClearReports(): void
-    {
-        $this->guard(self::ACTION_CLEAR_REPORTS);
-
-        global $wpdb;
-        $table = ReportsTable::tableName($wpdb);
-
-        $wpdb->query("TRUNCATE TABLE {$table}");
-
-        $this->redirect(true, 'Deleted saved report snapshots.');
-    }
-
-    public function handleResetStatus(): void
-    {
-        $this->guard(self::ACTION_RESET_STATUS);
-
-        delete_option(ReportManager::OPTION_STATUS);
-        delete_option('dr_beacon_reports_last_error');
-        delete_option('dr_beacon_onboarding_scan_last_error');
-        delete_option('dr_beacon_last_runner_heartbeat');
-
-        $this->redirect(true, 'Onboarding status reset.');
-    }
-
-    public function handleUnschedule(): void
-    {
-        $this->guard(self::ACTION_UNSCHEDULE);
-
-        if (!function_exists('as_unschedule_all_actions')) {
-            $this->redirect(false, 'Action Scheduler not available.');
-        }
-
-        // Remove both coordinator and runner jobs.
-        as_unschedule_all_actions(ReportManager::ACTION_RUN_NEXT, [], 'dr-beacon');
-        as_unschedule_all_actions(ReportManager::ACTION_RUN_REPORT, [], 'dr-beacon');
-
-        $this->redirect(true, 'Queued report jobs removed.');
-    }
-
-    public function handleFullReset(): void
-    {
-        $this->guard(self::ACTION_FULL_RESET);
-
-        $this->handleUnscheduleInternal();
-        $this->handleResetStatusInternal();
-        $this->handleClearReportsInternal();
-
-        $this->redirect(true, 'Full reset complete.');
-    }
-
-    private function handleUnscheduleInternal(): void
-    {
-        if (function_exists('as_unschedule_all_actions')) {
-            as_unschedule_all_actions(ReportManager::ACTION_RUN_NEXT, [], 'dr-beacon');
-            as_unschedule_all_actions(ReportManager::ACTION_RUN_REPORT, [], 'dr-beacon');
-        }
-    }
-
-    private function handleResetStatusInternal(): void
-    {
-        delete_option(ReportManager::OPTION_STATUS);
-        delete_option('dr_beacon_reports_last_error');
-        delete_option('dr_beacon_onboarding_scan_last_error');
-        delete_option('dr_beacon_last_runner_heartbeat');
-    }
-
-    private function handleClearReportsInternal(): void
-    {
-        global $wpdb;
-        $table = ReportsTable::tableName($wpdb);
-        $wpdb->query("TRUNCATE TABLE {$table}");
-    }
-
-    private function guard(string $nonceAction): void
-    {
-        if (!current_user_can('manage_options')) {
-            wp_die('Forbidden', 403);
-        }
-
-        if (!$this->isEnabled()) {
-            wp_die('Debug tools disabled.', 403);
-        }
-
-        check_admin_referer($nonceAction);
-    }
-
-    private function redirect(bool $ok, string $message): void
-    {
-        $url = add_query_arg(
-            [
-                'page' => self::SLUG,
-                'dr_beacon_ok' => $ok ? '1' : '0',
-                'dr_beacon_msg' => rawurlencode($message),
-            ],
-            admin_url('admin.php')
-        );
-
-        wp_safe_redirect($url);
-        exit;
-    }
-
-    public function isEnabled(): bool
-    {
-        return true;
-        // Dev only for now. Later you can replace this with a “developer mode” setting.
-        return defined('WP_DEBUG') && WP_DEBUG;
     }
 }
