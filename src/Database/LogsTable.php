@@ -2,29 +2,29 @@
 
 namespace DigitalRoyalty\Beacon\Database;
 
-use DigitalRoyalty\Beacon\Support\Enums\Database\LogTable;
+use DigitalRoyalty\Beacon\Support\Enums\Database\LogTableEnum;
 use wpdb;
 
 final class LogsTable
 {
     public static function tableName(wpdb $wpdb): string
     {
-        return $wpdb->prefix . LogTable::TABLE_SLUG;
+        return $wpdb->prefix . LogTableEnum::TABLE_SLUG;
     }
 
     public static function install(): void
     {
         global $wpdb;
 
-        $installedVersion = (int) get_option(LogTable::SCHEMA_VERSION_OPTION, 0);
+        $installedVersion = (int) get_option(LogTableEnum::SCHEMA_VERSION_OPTION, 0);
 
-        if ($installedVersion === LogTable::SCHEMA_VERSION && self::exists($wpdb)) {
+        if ($installedVersion === LogTableEnum::SCHEMA_VERSION && self::exists($wpdb)) {
             return;
         }
 
         self::createOrUpdateTable($wpdb);
 
-        update_option(LogTable::SCHEMA_VERSION_OPTION, LogTable::SCHEMA_VERSION, true);
+        update_option(LogTableEnum::SCHEMA_VERSION_OPTION, LogTableEnum::SCHEMA_VERSION, true);
     }
 
     private static function exists(wpdb $wpdb): bool

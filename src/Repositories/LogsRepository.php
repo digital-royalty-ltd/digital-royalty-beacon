@@ -3,7 +3,7 @@
 namespace DigitalRoyalty\Beacon\Repositories;
 
 use DigitalRoyalty\Beacon\Database\LogsTable;
-use DigitalRoyalty\Beacon\Support\Enums\Database\LogTable;
+use DigitalRoyalty\Beacon\Support\Enums\Database\LogTableEnum;
 
 final class LogsRepository
 {
@@ -16,7 +16,7 @@ final class LogsRepository
      */
     public function insert(array $row): void
     {
-        $table = $this->wpdb->prefix . LogTable::TABLE_SLUG;
+        $table = $this->wpdb->prefix . LogTableEnum::TABLE_SLUG;
         $this->wpdb->insert($table, $row);
     }
 
@@ -26,7 +26,7 @@ final class LogsRepository
     public function latest(int $limit = 200): array
     {
         $limit = max(1, min(1000, $limit));
-        $table = $this->wpdb->prefix . LogTable::TABLE_SLUG;
+        $table = $this->wpdb->prefix . LogTableEnum::TABLE_SLUG;
 
         // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
         $sql = "SELECT * FROM {$table} ORDER BY id DESC LIMIT %d";
