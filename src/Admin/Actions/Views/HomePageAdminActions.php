@@ -48,25 +48,12 @@ final class HomePageAdminActions
             $this->redirectWithMessage(false, $msg);
         }
 
-        $siteId = (string) $res->get('site_id', '');
-        if ($siteId === '') {
-            Services::logger()->warning(LogScopeEnum::ADMIN, LogEventEnum::CONNECT_FAILED, 'Beacon API did not return a site_id.', [
-                'code' => $res->code,
-                'data' => $res->data,
-            ]);
-
-            $this->redirectWithMessage(false, 'Beacon API did not return a site_id.');
-        }
-
         update_option(HomeViewOptionEnum::API_KEY, $apiKey, false);
-        update_option(HomeViewOptionEnum::SITE_ID, $siteId, false);
         update_option(HomeViewOptionEnum::CONNECTED_AT, gmdate('c'), false);
 
         Services::reset();
 
-        Services::logger()->info(LogScopeEnum::ADMIN, LogEventEnum::CONNECTED, 'Connected successfully.', [
-            'site_id' => $siteId,
-        ]);
+        Services::logger()->info(LogScopeEnum::ADMIN, LogEventEnum::CONNECTED, 'Connected successfully.');
 
         $this->redirectWithMessage(true, 'Connected successfully.');
     }
@@ -79,20 +66,15 @@ final class HomePageAdminActions
 
         check_admin_referer(HomeViewActionEnum::DISCONNECT);
 
-        $existingSiteId = (string) get_option(HomeViewOptionEnum::SITE_ID, '');
-
         delete_option(HomeViewOptionEnum::API_KEY);
-        delete_option(HomeViewOptionEnum::SITE_ID);
         delete_option(HomeViewOptionEnum::CONNECTED_AT);
 
-        // Reports onboarding
+        // Report onboarding
         delete_option(ReportManager::OPTION_STATUS);
 
         Services::reset();
 
-        Services::logger()->info(LogScopeEnum::ADMIN, LogEventEnum::DISCONNECTED, 'Disconnected.', [
-            'site_id' => $existingSiteId,
-        ]);
+        Services::logger()->info(LogScopeEnum::ADMIN, LogEventEnum::DISCONNECTED, 'Disconnected.');
 
         $this->redirectWithMessage(true, 'Disconnected.');
     }

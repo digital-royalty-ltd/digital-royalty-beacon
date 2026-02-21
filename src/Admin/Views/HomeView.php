@@ -19,10 +19,9 @@ final class HomeView implements ViewInterface
         }
 
         $apiKey      = (string) get_option(HomeViewOptionEnum::API_KEY, '');
-        $siteId      = (string) get_option(HomeViewOptionEnum::SITE_ID, '');
         $connectedAt = (string) get_option(HomeViewOptionEnum::CONNECTED_AT, '');
 
-        $isConnected = ($apiKey !== '' && $siteId !== '');
+        $isConnected = ($apiKey !== '');
 
         $okParam = isset($_GET['dr_beacon_ok']) ? (string) $_GET['dr_beacon_ok'] : '0';
         $isOk = $okParam === '1';
@@ -46,9 +45,9 @@ final class HomeView implements ViewInterface
                 $isOnboardingComplete = $this->isReportsOnboardingComplete();
 
                 if (!$isOnboardingComplete) {
-                    $this->renderReportsOnboarding($siteId, $connectedAt, $apiKey);
+                    $this->renderReportsOnboarding($connectedAt, $apiKey);
                 } else {
-                    $this->renderGeneralHome($siteId, $connectedAt, $apiKey);
+                    $this->renderGeneralHome($connectedAt, $apiKey);
                 }
                 ?>
             <?php endif; ?>
@@ -94,7 +93,7 @@ final class HomeView implements ViewInterface
         <?php
     }
 
-    private function renderReportsOnboarding(string $siteId, string $connectedAt, string $apiKey): void
+    private function renderReportsOnboarding(string $connectedAt, string $apiKey): void
     {
         global $wpdb;
 
@@ -110,10 +109,6 @@ final class HomeView implements ViewInterface
 
         <div style="background:#fff;border:1px solid #ccd0d4;border-radius:10px;padding:16px;max-width:920px;margin-bottom:16px;">
             <h2 style="margin-top:0;">Connection</h2>
-
-            <p style="margin:0 0 10px;">
-                <strong>Site ID:</strong> <code><?php echo esc_html($siteId); ?></code>
-            </p>
 
             <?php if ($connectedAt !== '') : ?>
                 <p style="margin:0 0 10px;">
@@ -213,7 +208,7 @@ final class HomeView implements ViewInterface
         <?php
     }
 
-    private function renderGeneralHome(string $siteId, string $connectedAt, string $apiKey): void
+    private function renderGeneralHome(string $connectedAt, string $apiKey): void
     {
         $toolsUrl = add_query_arg(['page' => AdminPageEnum::TOOLS], admin_url('admin.php'));
         ?>
@@ -221,10 +216,6 @@ final class HomeView implements ViewInterface
 
         <div style="background:#fff;border:1px solid #ccd0d4;border-radius:10px;padding:16px;max-width:920px;margin-bottom:16px;">
             <h2 style="margin-top:0;">Connection</h2>
-
-            <p style="margin:0 0 10px;">
-                <strong>Site ID:</strong> <code><?php echo esc_html($siteId); ?></code>
-            </p>
 
             <?php if ($connectedAt !== '') : ?>
                 <p style="margin:0 0 10px;">

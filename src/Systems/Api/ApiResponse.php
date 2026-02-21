@@ -4,12 +4,17 @@ namespace DigitalRoyalty\Beacon\Systems\Api;
 
 final class ApiResponse
 {
+    /**
+     * @param array<string,mixed> $data
+     */
     public function __construct(
         public readonly bool $ok,
         public readonly int $code,
-        public readonly ?string $message = null,
-        /** @var array<string,mixed> */
-        public readonly array $data = []
+        public readonly ?string $message,
+        public readonly array $data,
+        public readonly ?int $retryAfterSeconds = null,
+        public readonly ?string $location = null,
+        public readonly ?int $deferredRequestId = null
     ) {}
 
     public function isOk(): bool

@@ -5,7 +5,6 @@ namespace DigitalRoyalty\Beacon\Admin\Views\Tools;
 use DigitalRoyalty\Beacon\Admin\Actions\Views\Tools\ContentGeneratorAdminActions;
 use DigitalRoyalty\Beacon\Admin\Views\ViewInterface;
 use DigitalRoyalty\Beacon\Support\Enums\Admin\AdminPageEnum;
-use WP_Error;
 use WP_Taxonomy;
 
 final class ContentGeneratorView implements ViewInterface
@@ -30,112 +29,22 @@ final class ContentGeneratorView implements ViewInterface
         return true;
     }
 
-    /**
-     * Action hook target: admin_post_dr_beacon_generate_content
-     */
-    public function handleGenerate(): void
-    {
-        if (!current_user_can('edit_posts')) {
-            wp_die(__('Permission denied.', 'digital-royalty'));
-        }
-
-        if (
-                !isset($_POST['dr_beacon_nonce']) ||
-                !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['dr_beacon_nonce'])), 'dr_beacon_generate_content')
-        ) {
-            wp_die(__('Security check failed.', 'digital-royalty'));
-        }
-
-        $postType = sanitize_text_field(wp_unslash($_POST['post_type'] ?? 'post'));
-        if (!post_type_exists($postType)) {
-            wp_die(__('Invalid post type.', 'digital-royalty'));
-        }
-
-        // Optional prompt (may be empty)
-        $prompt = '';
-        if (isset($_POST['prompt'])) {
-            $prompt = sanitize_textarea_field(wp_unslash($_POST['prompt']));
-        }
-
-        // Tax inputs (same structure WP uses)
-        $taxInputRaw = $_POST['tax_input'] ?? [];
-        if (!is_array($taxInputRaw)) {
-            $taxInputRaw = [];
-        }
-
-        // Only accept taxonomies that belong to the selected post type.
-        $allowedTaxonomies = get_object_taxonomies($postType, 'names');
-
-        // Build a sanitized taxonomy payload.
-        $sanitizedTaxInput = [];
-        foreach ($taxInputRaw as $taxonomy => $value) {
-            $taxonomy = sanitize_key($taxonomy);
-
-            if (!in_array($taxonomy, $allowedTaxonomies, true)) {
-                continue;
-            }
-
-            $taxObj = get_taxonomy($taxonomy);
-            if (!$taxObj instanceof WP_Taxonomy) {
-                continue;
-            }
-
-            if ($taxObj->hierarchical) {
-                // Expect array of term IDs.
-                if (!is_array($value)) {
-                    continue;
-                }
-
-                $termIds = array_map(static function ($id) {
-                    return absint($id);
-                }, $value);
-
-                $termIds = array_values(array_filter($termIds, static fn($id) => $id > 0));
-
-                $sanitizedTaxInput[$taxonomy] = $termIds;
-            } else {
-                // Expect comma-separated string of tags (names) from post_tags_meta_box.
-                if (is_array($value)) {
-                    $value = implode(',', array_map('sanitize_text_field', array_map('wp_unslash', $value)));
-                } else {
-                    $value = sanitize_text_field(wp_unslash((string) $value));
-                }
-
-                $sanitizedTaxInput[$taxonomy] = $value;
-            }
-        }
-
-        /**
-         * Call your Beacon API here (dashboard will use post type + tax context).
-         * Replace this stub with ApiClient usage.
-         */
-        $generated = $this->fakeGenerateResponse($postType, $prompt, $sanitizedTaxInput);
-        if (is_wp_error($generated)) {
-            wp_die($generated->get_error_message());
-        }
-
-        $postId = wp_insert_post([
-                'post_type'    => $postType,
-                'post_status'  => 'draft',
-                'post_title'   => $generated['title'] ?? 'Generated Draft',
-                'post_content' => $generated['content'] ?? '',
-        ], true);
-
-        if ($postId instanceof WP_Error) {
-            wp_die($postId->get_error_message());
-        }
-
-        // Apply taxonomies the same way the editor does.
-        $this->applyTaxInputToPost($postId, $postType, $sanitizedTaxInput);
-
-        wp_safe_redirect(admin_url('post.php?post=' . absint($postId) . '&action=edit'));
-        exit;
-    }
-
     public function render(): void
     {
         if (!current_user_can('edit_posts')) {
             wp_die(__('You do not have permission to access this page.', 'digital-royalty'));
+        }
+
+        $okParam = isset($_GET['dr_beacon_ok']) ? (string) $_GET['dr_beacon_ok'] : '0';
+        $isOk = $okParam === '1';
+        $msg = isset($_GET['dr_beacon_msg']) ? (string) $_GET['dr_beacon_msg'] : '';
+
+        if ($msg !== '') {
+            ?>
+            <div class="notice notice-<?php echo esc_attr($isOk ? 'success' : 'error'); ?> is-dismissible">
+                <p><?php echo esc_html($msg); ?></p>
+            </div>
+            <?php
         }
 
         $backUrl = add_query_arg([
