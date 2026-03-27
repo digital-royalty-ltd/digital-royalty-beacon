@@ -37,7 +37,7 @@ final class ReportRunner
         }
 
         try {
-            $data = $generator->generate();
+            $data        = $generator->generate();
             $payloadJson = wp_json_encode($data);
 
             if (!is_string($payloadJson)) {
@@ -45,73 +45,81 @@ final class ReportRunner
                 $this->reports->markFailed($type, $version, $msg);
 
                 Services::logger()->error(LogScopeEnum::REPORTS, 'runner_json_encode_failed', $msg, [
-                    'type' => $type,
+                    'type'    => $type,
                     'version' => $version,
                 ]);
 
                 return;
             }
 
-            $hash = hash('sha256', $payloadJson);
+            $hash        = hash('sha256', $payloadJson);
             $generatedAt = current_time('mysql');
 
+            // Store the complete payload locally before submitting.
             $this->reports->upsertGenerated($type, $version, $payloadJson, $hash, $generatedAt);
 
-            Services::logger()->info(LogScopeEnum::REPORTS, 'runner_generated', 'Report generated and stored.', [
-                'type' => $type,
-                'version' => $version,
-                'hash' => $hash,
+            Services::logger()->info(LogScopeEnum::REPORTS, 'runner_generated', 'Report generated and stored locally.', [
+                'type'         => $type,
+                'version'      => $version,
+                'hash'         => $hash,
                 'generated_at' => $generatedAt,
-                'bytes' => strlen($payloadJson),
+                'bytes'        => strlen($payloadJson),
             ]);
 
-            $envelope = [
-                'type' => $type,
-                'version' => $version,
-                'generated_at' => $generatedAt,
-                'plugin_version' => defined('DR_BEACON_VERSION') ? DR_BEACON_VERSION : 'unknown',
-                'data' => $data,
-            ];
+            $this->submitStoredReport($type, $version, $generatedAt, $data);
 
-            Services::logger()->info(LogScopeEnum::REPORTS, 'runner_submit_attempt', 'Submitting report envelope.', [
-                'type' => $type,
-                'version' => $version,
-            ]);
-
-            $result = $this->submitter->submit($envelope);
-
-            if (!($result['ok'] ?? false)) {
-                $code = (int) ($result['status_code'] ?? 0);
-                $err = (string) ($result['error'] ?? 'Unknown submission error.');
-                $msg = "Submit failed ({$code}): {$err}";
-
-                $this->reports->markFailed($type, $version, $msg);
-
-                Services::logger()->error(LogScopeEnum::REPORTS, 'runner_submit_failed', $msg, [
-                    'type' => $type,
-                    'version' => $version,
-                    'status_code' => $code,
-                ]);
-
-                return;
-            }
-
-            $submittedAt = current_time('mysql');
-            $this->reports->markSubmitted($type, $version, $submittedAt);
-
-            Services::logger()->info(LogScopeEnum::REPORTS, 'runner_submit_success', 'Report submitted successfully.', [
-                'type' => $type,
-                'version' => $version,
-                'submitted_at' => $submittedAt,
-            ]);
         } catch (\Throwable $e) {
             $this->reports->markFailed($type, $version, $e->getMessage());
 
             Services::logger()->error(LogScopeEnum::REPORTS, 'runner_exception', $e->getMessage(), [
-                'type' => $type,
-                'version' => $version,
+                'type'      => $type,
+                'version'   => $version,
                 'exception' => get_class($e),
             ]);
         }
+    }
+
+    /** @param array<string, mixed> $data */
+    public function submitStoredReport(string $type, int $version, string $generatedAt, array $data): void
+    {
+        $envelope = [
+            'type'           => $type,
+            'version'        => $version,
+            'generated_at'   => $generatedAt,
+            'plugin_version' => defined('DR_BEACON_VERSION') ? DR_BEACON_VERSION : 'unknown',
+            'data'           => $data,
+        ];
+
+        Services::logger()->info(LogScopeEnum::REPORTS, 'runner_submit_attempt', 'Submitting stored report.', [
+            'type'    => $type,
+            'version' => $version,
+        ]);
+
+        $result = $this->submitter->submit($envelope);
+
+        if (!($result['ok'] ?? false)) {
+            $code = (int) ($result['status_code'] ?? 0);
+            $err  = (string) ($result['error'] ?? 'Unknown submission error.');
+            $msg  = "Submit failed ({$code}): {$err}";
+
+            $this->reports->markFailed($type, $version, $msg);
+
+            Services::logger()->error(LogScopeEnum::REPORTS, 'runner_submit_failed', $msg, [
+                'type'        => $type,
+                'version'     => $version,
+                'status_code' => $code,
+            ]);
+
+            return;
+        }
+
+        $submittedAt = current_time('mysql');
+        $this->reports->markSubmitted($type, $version, $submittedAt);
+
+        Services::logger()->info(LogScopeEnum::REPORTS, 'runner_submit_success', 'Report submitted successfully.', [
+            'type'         => $type,
+            'version'      => $version,
+            'submitted_at' => $submittedAt,
+        ]);
     }
 }
