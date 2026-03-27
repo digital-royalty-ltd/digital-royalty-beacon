@@ -99,6 +99,75 @@ final class ApiClient
     }
 
     /**
+     * Transient content areas analysis helper.
+     *
+     * Sends the full site sitemap (pages tree + collections) to the Beacon
+     * endpoint and returns AI-identified content areas with intent and topics.
+     * Nothing is persisted on the Beacon side.
+     *
+     * On success: $response->ok === true, $response->data['content_areas'] is array[].
+     * On failure: $response->ok === false; caller leaves content_areas empty.
+     *
+     * @param array<string, mixed> $sitemap
+     */
+    public function analyseContentAreas(array $sitemap): ApiResponse
+    {
+        return $this->request(
+            method: 'POST',
+            path: 'tools/analyse-content-areas',
+            payload: ['sitemap' => $sitemap],
+            includeClientMeta: true,
+            requireAuth: true
+        );
+    }
+
+    /**
+     * Transient key pages identification helper.
+     *
+     * Sends a flat list of slug/title pairs to the Beacon endpoint and returns
+     * the slugs the AI considers most important for understanding the site.
+     * Nothing is persisted on the Beacon side.
+     *
+     * On success: $response->ok === true, $response->data['identifiers'] is string[].
+     * On failure: $response->ok === false; caller should fall back to first N stubs.
+     *
+     * @param array<int, array{identifier: string, title: string}> $pages
+     */
+    public function identifyKeyPages(array $pages, int $max = 6): ApiResponse
+    {
+        return $this->request(
+            method: 'POST',
+            path: 'tools/identify-key-pages',
+            payload: ['pages' => $pages, 'max' => $max],
+            includeClientMeta: true,
+            requireAuth: true
+        );
+    }
+
+    /**
+     * Transient site profile analysis helper.
+     *
+     * Sends content samples to the Beacon analysis endpoint and returns the
+     * AI-derived profile synchronously (200 OK). Nothing is persisted on the
+     * Beacon side; the result is merged into the local report payload by the caller.
+     *
+     * On success: $response->ok === true, $response->data['analysis'] is the array.
+     * On failure: $response->ok === false with an error message.
+     *
+     * @param array<string, mixed> $samples
+     */
+    public function analyseSiteProfile(array $samples): ApiResponse
+    {
+        return $this->request(
+            method: 'POST',
+            path: 'tools/analyse-site-profile',
+            payload: ['samples' => $samples],
+            includeClientMeta: true,
+            requireAuth: true
+        );
+    }
+
+    /**
      * Poll a previously deferred request.
      *
      * $pollPath should be stored as a relative path under /beacon/{version}/...
