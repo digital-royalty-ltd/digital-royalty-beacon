@@ -4,6 +4,8 @@
  * Description: Connect WordPress via Beacon to gain: automation, content intelligence, and publishing.
  * Version: 0.2.1
  * Author: Digital Royalty
+ * Author URI: https://digitalroyalty.co.uk
+ * Plugin URI: https://digitalroyalty.co.uk
  * Requires at least: 6.0
  * Requires PHP: 8.1
  * Text Domain: digital-royalty-beacon
