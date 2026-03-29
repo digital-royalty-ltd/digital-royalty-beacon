@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Beacon by Digital Royalty
  * Description: Connect WordPress via Beacon to gain: automation, content intelligence, and publishing.
- * Version: 0.1.0
+ * Version: 0.2.0
  * Author: Digital Royalty
  * Requires at least: 6.0
  * Requires PHP: 8.1
@@ -32,7 +32,7 @@ if (!defined('ABSPATH')) {
  * Current plugin version.
  * Used for cache busting, API headers, etc.
  */
-define('DR_BEACON_VERSION', '0.1.0');
+define('DR_BEACON_VERSION', '0.2.0');
 
 /**
  * Absolute path to this plugin file.
