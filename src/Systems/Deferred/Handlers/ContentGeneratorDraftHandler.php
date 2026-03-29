@@ -52,16 +52,29 @@ final class ContentGeneratorDraftHandler implements DeferredCompletionHandlerInt
             ? $payload['content_html']
             : '';
 
-        // Original request payload stored in deferred row
-        $original = $this->decodeJsonField($row['payload'] ?? null);
+        // Resolve WP routing from the local content area map.
+        // The payload stores content_area_key (the normalised map key) so we
+        // can look up post_type and primary taxonomy without WP-specific fields
+        // ever appearing in the Beacon API payload.
+        $original       = $this->decodeJsonField($row['payload'] ?? null);
+        $contentAreaKey = isset($original['content_area_key']) && is_string($original['content_area_key'])
+            ? $original['content_area_key']
+            : '';
 
-        $postType = isset($original['post_type']) && is_string($original['post_type']) && post_type_exists($original['post_type'])
-            ? $original['post_type']
+        $routing  = [];
+        if ($contentAreaKey !== '') {
+            $map   = get_option('dr_beacon_content_area_map', []);
+            $entry = is_array($map[$contentAreaKey] ?? null) ? $map[$contentAreaKey] : [];
+            $routing = is_array($entry['routing'] ?? null) ? $entry['routing'] : [];
+        }
+
+        $postType = isset($routing['post_type']) && is_string($routing['post_type']) && post_type_exists($routing['post_type'])
+            ? $routing['post_type']
             : 'post';
 
-        $taxInput = isset($original['tax_input']) && is_array($original['tax_input'])
-            ? $original['tax_input']
-            : [];
+        // Build tax_input from primary_taxonomy if present; terms are assigned
+        // by the editor after reviewing the draft.
+        $taxInput = [];
 
         $postId = wp_insert_post([
             'post_type' => $postType,

@@ -233,6 +233,28 @@ final class DeferredRequestsRepository
         return is_array($rows) ? $rows : [];
     }
 
+    /**
+     * Return the most recent deferred request row for a given request key,
+     * regardless of status. Used by the automations controller to surface
+     * the latest run state.
+     *
+     * @return array<string,mixed>|null
+     */
+    public function getLatestByKey(string $requestKey): ?array
+    {
+        $table = DeferredRequestsTable::tableName($this->wpdb);
+
+        $row = $this->wpdb->get_row(
+            $this->wpdb->prepare(
+                "SELECT * FROM {$table} WHERE request_key = %s ORDER BY created_at DESC LIMIT 1",
+                $requestKey
+            ),
+            ARRAY_A
+        );
+
+        return is_array($row) ? $row : null;
+    }
+
     public function nextDueTimestampUtc(): ?int
     {
         // Return earliest next_attempt time for pending rows as a Unix timestamp (UTC).
@@ -251,6 +273,12 @@ final class DeferredRequestsRepository
 
         $ts = strtotime($min . ' UTC');
         return $ts === false ? null : $ts;
+    }
+
+    public function deleteAll(): void
+    {
+        $table = DeferredRequestsTable::tableName($this->wpdb);
+        $this->wpdb->query("DELETE FROM {$table}");
     }
 
     /**

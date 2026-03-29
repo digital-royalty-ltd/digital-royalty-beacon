@@ -57,6 +57,12 @@ define('DR_BEACON_API_NAMESPACE', 'beacon');
 define('DR_BEACON_API_VERSION', 'v1');
 
 /**
+ * GitHub repository details for the experimental update channel.
+ */
+define('DR_BEACON_GITHUB_OWNER', 'digital-royalty-ltd');
+define('DR_BEACON_GITHUB_REPO',  'digital-royalty-beacon');
+
+/**
  * Register internal autoloader.
  *
  * Beacon uses a lightweight custom autoloader for namespaced classes
