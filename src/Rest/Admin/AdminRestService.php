@@ -2,12 +2,15 @@
 
 namespace DigitalRoyalty\Beacon\Rest\Admin;
 
+use DigitalRoyalty\Beacon\Repositories\ApiKeysRepository;
+use DigitalRoyalty\Beacon\Repositories\ApiLogsRepository;
 use DigitalRoyalty\Beacon\Repositories\FourOhFourLogsRepository;
 use DigitalRoyalty\Beacon\Repositories\LogsRepository;
 use DigitalRoyalty\Beacon\Repositories\RedirectsRepository;
 use DigitalRoyalty\Beacon\Repositories\DeferredRequestsRepository;
 use DigitalRoyalty\Beacon\Repositories\ReportsRepository;
 use DigitalRoyalty\Beacon\Repositories\SchedulerRepository;
+use DigitalRoyalty\Beacon\Rest\Admin\Controllers\ApiManagerController;
 use DigitalRoyalty\Beacon\Rest\Admin\Controllers\AutomationsController;
 use DigitalRoyalty\Beacon\Rest\Admin\Controllers\BootstrapController;
 use DigitalRoyalty\Beacon\Rest\Admin\Controllers\CampaignsController;
@@ -38,7 +41,9 @@ final class AdminRestService
         private readonly FourOhFourLogsRepository   $fourOhFourRepo,
         private readonly RedirectsRepository        $redirectsRepo,
         private readonly DeferredRequestsRepository $deferredRepo,
-        private readonly SchedulerRepository        $schedulerRepo
+        private readonly SchedulerRepository        $schedulerRepo,
+        private readonly ApiKeysRepository          $apiKeysRepo,
+        private readonly ApiLogsRepository          $apiLogsRepo
     ) {}
 
     public function register(): void
@@ -58,6 +63,7 @@ final class AdminRestService
             (new WorkshopController($this->fourOhFourRepo))->registerRoutes();
             (new WorkshopAuditController($this->redirectsRepo))->registerRoutes();
             (new WorkshopInteractiveController($this->redirectsRepo))->registerRoutes();
+            (new ApiManagerController($this->apiKeysRepo, $this->apiLogsRepo))->registerRoutes();
         });
     }
 }

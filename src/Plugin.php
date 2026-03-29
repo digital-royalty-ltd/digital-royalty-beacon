@@ -7,16 +7,21 @@ use DigitalRoyalty\Beacon\Admin\Assets\AdminAssets;
 use DigitalRoyalty\Beacon\Admin\Config\AdminMenu;
 use DigitalRoyalty\Beacon\Admin\Screens\AutomationsScreen;
 use DigitalRoyalty\Beacon\Admin\Screens\ConfigurationScreen;
+use DigitalRoyalty\Beacon\Admin\Screens\ApiScreen;
 use DigitalRoyalty\Beacon\Admin\Screens\DebugScreen;
 use DigitalRoyalty\Beacon\Admin\Screens\HomeScreen;
 use DigitalRoyalty\Beacon\Admin\Screens\MissionControlScreen;
 use DigitalRoyalty\Beacon\Admin\Screens\ScreenRegistry;
 use DigitalRoyalty\Beacon\Admin\Screens\WorkshopScreen;
+use DigitalRoyalty\Beacon\Database\ApiKeysTable;
+use DigitalRoyalty\Beacon\Database\ApiLogsTable;
 use DigitalRoyalty\Beacon\Database\DeferredRequestsTable;
 use DigitalRoyalty\Beacon\Database\FourOhFourLogsTable;
 use DigitalRoyalty\Beacon\Database\LogsTable;
 use DigitalRoyalty\Beacon\Database\RedirectsTable;
 use DigitalRoyalty\Beacon\Database\ReportsTable;
+use DigitalRoyalty\Beacon\Repositories\ApiKeysRepository;
+use DigitalRoyalty\Beacon\Repositories\ApiLogsRepository;
 use DigitalRoyalty\Beacon\Repositories\DeferredRequestsRepository;
 use DigitalRoyalty\Beacon\Repositories\FourOhFourLogsRepository;
 use DigitalRoyalty\Beacon\Repositories\LogsRepository;
@@ -47,6 +52,7 @@ use DigitalRoyalty\Beacon\Systems\Workshop\SanitiseFilenamesHandler;
 use DigitalRoyalty\Beacon\Systems\Workshop\SmtpHandler;
 use DigitalRoyalty\Beacon\Systems\Workshop\SvgSupportHandler;
 use DigitalRoyalty\Beacon\Systems\Workshop\UserSwitcherHandler;
+use DigitalRoyalty\Beacon\Systems\Api\PublicApiDocsPage;
 use DigitalRoyalty\Beacon\Systems\Reports\ReportService;
 use DigitalRoyalty\Beacon\Systems\Updater\GitHubUpdater;
 
@@ -115,11 +121,14 @@ final class Plugin
         DeferredRequestsTable::install();
         RedirectsTable::install();
         FourOhFourLogsTable::install();
+        ApiKeysTable::install();
+        ApiLogsTable::install();
     }
 
     private function registerServices(): void
     {
         (new ReportService())->register();
+        (new PublicApiDocsPage())->register();
     }
 
     private function registerUpdater(): void
@@ -150,6 +159,7 @@ final class Plugin
             new MissionControlScreen(),
             new ConfigurationScreen(),
             new DebugScreen(),
+            new ApiScreen(),
         ]);
 
         (new AdminMenu($screenRegistry))->register();
@@ -167,7 +177,9 @@ final class Plugin
             new FourOhFourLogsRepository($wpdb),
             new RedirectsRepository($wpdb),
             new DeferredRequestsRepository($wpdb),
-            new SchedulerRepository($wpdb)
+            new SchedulerRepository($wpdb),
+            new ApiKeysRepository($wpdb),
+            new ApiLogsRepository($wpdb)
         ))->register();
     }
 

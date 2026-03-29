@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Wrench, Zap, Target, Settings, Bug, Sparkles } from 'lucide-react'
+import { LayoutDashboard, Wrench, Zap, Target, Settings, Bug, Sparkles, Code2 } from 'lucide-react'
 
 const navItems = [
   { to: '/',                label: 'Dashboard',      icon: LayoutDashboard, end: true },
@@ -7,6 +7,7 @@ const navItems = [
   { to: '/automations',     label: 'Automations',     icon: Zap                       },
   { to: '/campaigns',       label: 'Campaigns',       icon: Target                    },
   { to: '/configuration',   label: 'Configuration',   icon: Settings                  },
+  { to: '/api',             label: 'API',             icon: Code2                     },
   { to: '/debug',           label: 'Debug',           icon: Bug                       },
 ]
 

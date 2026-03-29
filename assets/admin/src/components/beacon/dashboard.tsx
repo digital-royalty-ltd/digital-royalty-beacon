@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -247,6 +247,74 @@ function OrientationScreen() {
   )
 }
 
+// ─── Report run progress ──────────────────────────────────────────────────────
+
+interface RunReport { type: string; label: string; status: string }
+
+function RunningReportsProgress({ reports }: { reports: RunReport[] }) {
+  const total     = reports.length || Object.keys(REPORT_META).length
+  const completed = reports.filter(r => r.status === 'submitted' || r.status === 'failed').length
+  const pct       = Math.round((completed / total) * 100)
+
+  // Use the known report meta order so items appear even before the first poll returns
+  const display = Object.entries(REPORT_META).map(([type, meta]) => {
+    const live = reports.find(r => r.type === type)
+    return { type, label: meta.label, status: live?.status ?? 'pending' }
+  })
+
+  return (
+    <div className="rounded-2xl border-2 border-[#390d58]/25 bg-gradient-to-br from-[#390d58]/[0.03] to-transparent p-6">
+      <div className="flex items-center gap-3 mb-1">
+        <div className="rounded-xl bg-[#390d58] p-3 text-white shrink-0 shadow-md shadow-[#390d58]/20">
+          <Loader2 className="h-5 w-5 animate-spin" />
+        </div>
+        <div>
+          <h3 className="text-base font-semibold text-[#390d58]">Running site analysis…</h3>
+          <p className="text-sm text-muted-foreground">
+            {completed} of {total} reports complete
+          </p>
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      <div className="w-full bg-[#390d58]/10 rounded-full h-2 my-4">
+        <div
+          className="bg-[#390d58] h-2 rounded-full transition-all duration-700"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+
+      {/* Per-report rows */}
+      <div className="space-y-2.5">
+        {display.map(r => (
+          <div key={r.type} className="flex items-center gap-3">
+            {r.status === 'submitted' ? (
+              <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+            ) : r.status === 'failed' ? (
+              <AlertCircle className="h-4 w-4 text-red-500 shrink-0" />
+            ) : (
+              <Loader2 className="h-4 w-4 text-[#390d58]/50 animate-spin shrink-0" />
+            )}
+            <span className={`text-sm flex-1 ${r.status === 'submitted' ? 'text-foreground' : 'text-muted-foreground'}`}>
+              {r.label}
+            </span>
+            <span className={`text-xs font-medium ${
+              r.status === 'submitted' ? 'text-emerald-600'
+              : r.status === 'failed'  ? 'text-red-500'
+              : 'text-muted-foreground'
+            }`}>
+              {r.status === 'submitted' ? 'Done'
+               : r.status === 'failed'  ? 'Failed'
+               : r.status === 'generated' ? 'Submitting…'
+               : 'Waiting…'}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ─── Phase 2: Intelligence dashboard ─────────────────────────────────────────
 
 function IntelligenceDashboard({ data, onRefresh, refreshing }: {
@@ -256,6 +324,79 @@ function IntelligenceDashboard({ data, onRefresh, refreshing }: {
 }) {
   const navigate = useNavigate()
   const score    = calcScore(data)
+
+  const [running,        setRunning]        = useState(false)
+  const [runningReports, setRunningReports] = useState<RunReport[]>([])
+
+  const pollRef    = useRef<ReturnType<typeof setInterval> | null>(null)
+  const safetyRef  = useRef<ReturnType<typeof setTimeout>  | null>(null)
+  const onRefreshRef = useRef(onRefresh)
+  useEffect(() => { onRefreshRef.current = onRefresh }, [onRefresh])
+
+  const firstRun = data.reports.length === 0
+
+  const stopPolling = () => {
+    if (pollRef.current)   { clearInterval(pollRef.current);  pollRef.current   = null }
+    if (safetyRef.current) { clearTimeout(safetyRef.current); safetyRef.current = null }
+  }
+
+  const startPolling = () => {
+    // Guard — don't double-start
+    if (pollRef.current) return
+
+    safetyRef.current = setTimeout(() => {
+      stopPolling()
+      setRunning(false)
+      onRefreshRef.current()
+    }, 180_000)
+
+    pollRef.current = setInterval(async () => {
+      try {
+        const reports = await api.get<RunReport[]>('/reports')
+        setRunningReports(reports)
+        const total = Object.keys(REPORT_META).length
+        const done  = reports.filter(r => r.status === 'submitted' || r.status === 'failed').length
+        if (reports.length > 0 && done >= total) {
+          stopPolling()
+          setRunning(false)
+          onRefreshRef.current()
+        }
+      } catch {
+        // transient — keep polling
+      }
+    }, 2000)
+  }
+
+  // On mount: if the server already has reports in-progress (e.g. user navigated away
+  // mid-run and came back), restore the progress UI and resume polling automatically.
+  useEffect(() => {
+    const inProgress = data.reports.some(
+      r => r.status === 'pending' || r.status === 'generated'
+    )
+    if (inProgress) {
+      setRunning(true)
+      setRunningReports(
+        data.reports.map(r => ({
+          type:   r.type,
+          label:  REPORT_META[r.type]?.label ?? r.type,
+          status: r.status,
+        }))
+      )
+      startPolling()
+    }
+    return stopPolling
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleRunAnalysis = () => {
+    setRunning(true)
+    setRunningReports([])
+    startPolling()
+    // Fire-and-forget — polling tracks progress independently
+    api.post('/reports/run', {}).catch(() => {
+      stopPolling()
+      setRunning(false)
+    })
+  }
 
   return (
     <div className="space-y-6">
@@ -268,12 +409,46 @@ function IntelligenceDashboard({ data, onRefresh, refreshing }: {
             How complete is Beacon's knowledge of your site?
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={onRefresh} disabled={refreshing}
-          className="gap-1.5 border-[#390d58]/20 text-[#390d58]">
-          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={onRefresh} disabled={refreshing || running}
+            className="gap-1.5 border-[#390d58]/20 text-[#390d58]">
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+          {!firstRun && !running && (
+            <Button size="sm" onClick={handleRunAnalysis} disabled={refreshing}
+              className="gap-1.5 bg-[#390d58] hover:bg-[#4a1170] text-white">
+              <Sparkles className="h-3.5 w-3.5" /> Re-run analysis
+            </Button>
+          )}
+        </div>
       </div>
+
+      {/* Running progress — replaces first-run banner while analysis is in progress */}
+      {running && <RunningReportsProgress reports={runningReports} />}
+
+      {/* First-run prompt — shown when connected but no reports have ever run */}
+      {firstRun && !running && (
+        <div className="rounded-2xl border-2 border-[#390d58]/25 bg-gradient-to-br from-[#390d58]/[0.03] to-transparent p-6 flex items-start gap-5">
+          <div className="rounded-xl bg-[#390d58] p-3 text-white shrink-0 shadow-md shadow-[#390d58]/20">
+            <Sparkles className="h-5 w-5" />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-base font-semibold text-[#390d58] mb-1">
+              Run your first site analysis
+            </h3>
+            <p className="text-sm text-muted-foreground leading-relaxed mb-4">
+              Before Beacon can guide your campaigns and automations, it needs to build a profile of your site. This runs automatically and typically completes in under a minute.
+            </p>
+            <Button
+              onClick={handleRunAnalysis}
+              className="bg-[#390d58] hover:bg-[#4a1170] text-white gap-2"
+            >
+              <Sparkles className="h-4 w-4" /> Run site analysis
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Score + breakdown */}
       <Card className="border-[#390d58]/20 overflow-hidden">

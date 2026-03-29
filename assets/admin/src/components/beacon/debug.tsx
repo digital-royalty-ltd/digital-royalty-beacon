@@ -17,8 +17,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Bug, Clock, Trash2, Activity, Calendar, Loader2, RefreshCw, RotateCcw, AlertTriangle } from 'lucide-react'
+import {
+  Bug, Clock, Trash2, Activity, Calendar, Loader2,
+  RefreshCw, RotateCcw, AlertTriangle, ChevronLeft, ChevronRight,
+} from 'lucide-react'
 import { api } from '@/lib/api'
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 type LogScope = 'reports' | 'api' | 'system' | 'admin' | 'all'
 
@@ -67,6 +72,10 @@ interface PagedResult<T> {
   page:     number
 }
 
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const PER_PAGE = 25
+
 const scopeColors: Record<string, string> = {
   reports: 'bg-[#390d58]/10 text-[#390d58] border-[#390d58]/20',
   api:     'bg-emerald-500/10 text-emerald-600 border-emerald-500/20',
@@ -88,38 +97,93 @@ const schedulerStatusColors: Record<string, string> = {
   canceled:  'bg-muted text-muted-foreground',
 }
 
+// ── Shared pagination control ─────────────────────────────────────────────────
+
+function TablePagination({ page, total, onPage }: {
+  page:   number
+  total:  number
+  onPage: (p: number) => void
+}) {
+  const totalPages = Math.max(1, Math.ceil(total / PER_PAGE))
+  if (totalPages <= 1) return null
+
+  const from = Math.min((page - 1) * PER_PAGE + 1, total)
+  const to   = Math.min(page * PER_PAGE, total)
+
+  return (
+    <div className="flex items-center justify-between px-4 py-3 border-t border-[#390d58]/10 bg-[#390d58]/[0.01]">
+      <p className="text-xs text-muted-foreground">
+        {from}–{to} of {total}
+      </p>
+      <div className="flex items-center gap-1">
+        <Button
+          variant="outline" size="sm"
+          onClick={() => onPage(page - 1)}
+          disabled={page <= 1}
+          className="h-7 w-7 p-0 border-[#390d58]/20 text-[#390d58]"
+        >
+          <ChevronLeft className="h-3.5 w-3.5" />
+        </Button>
+        <span className="text-xs text-muted-foreground px-2 tabular-nums">
+          {page} / {totalPages}
+        </span>
+        <Button
+          variant="outline" size="sm"
+          onClick={() => onPage(page + 1)}
+          disabled={page >= totalPages}
+          className="h-7 w-7 p-0 border-[#390d58]/20 text-[#390d58]"
+        >
+          <ChevronRight className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
 export function Debug() {
   const [scopeFilter,      setScopeFilter]      = useState<LogScope>('all')
   const [logs,             setLogs]             = useState<LogEntry[]>([])
+  const [logsTotal,        setLogsTotal]        = useState(0)
+  const [logsPage,         setLogsPage]         = useState(1)
   const [debugInfo,        setDebugInfo]        = useState<DebugInfo | null>(null)
   const [loadingLogs,      setLoadingLogs]      = useState(true)
   const [clearing,         setClearing]         = useState(false)
 
   const [deferredRows,     setDeferredRows]     = useState<DeferredRow[]>([])
   const [deferredTotal,    setDeferredTotal]    = useState(0)
+  const [deferredPage,     setDeferredPage]     = useState(1)
   const [loadingDeferred,  setLoadingDeferred]  = useState(true)
 
   const [schedulerRows,    setSchedulerRows]    = useState<SchedulerRow[]>([])
   const [schedulerTotal,   setSchedulerTotal]   = useState(0)
+  const [schedulerPage,    setSchedulerPage]    = useState(1)
   const [loadingScheduler, setLoadingScheduler] = useState(true)
 
   const [resetting,        setResetting]        = useState<string | null>(null)
 
-  const fetchLogs = useCallback(async (scope: LogScope) => {
+  // ── Fetch functions ──────────────────────────────────────────────────────
+
+  const fetchLogs = useCallback(async (scope: LogScope, page: number) => {
     setLoadingLogs(true)
     try {
-      const params = scope !== 'all' ? `?scope=${scope}&per_page=200` : '?per_page=200'
-      const result = await api.get<{ rows: LogEntry[]; total: number }>(`/logs${params}`)
+      const params = new URLSearchParams({ per_page: String(PER_PAGE), page: String(page) })
+      if (scope !== 'all') params.set('scope', scope)
+      const result = await api.get<{ rows: LogEntry[]; total: number }>(`/logs?${params}`)
       setLogs(result.rows)
+      setLogsTotal(result.total)
     } finally {
       setLoadingLogs(false)
     }
   }, [])
 
-  const fetchDeferred = useCallback(async () => {
+  const fetchDeferred = useCallback(async (page: number) => {
     setLoadingDeferred(true)
     try {
-      const result = await api.get<PagedResult<DeferredRow>>('/debug/deferred-requests?per_page=50')
+      const result = await api.get<PagedResult<DeferredRow>>(
+        `/debug/deferred-requests?per_page=${PER_PAGE}&page=${page}`
+      )
       setDeferredRows(result.rows)
       setDeferredTotal(result.total)
     } finally {
@@ -127,10 +191,12 @@ export function Debug() {
     }
   }, [])
 
-  const fetchScheduler = useCallback(async () => {
+  const fetchScheduler = useCallback(async (page: number) => {
     setLoadingScheduler(true)
     try {
-      const result = await api.get<PagedResult<SchedulerRow>>('/debug/scheduler-actions?per_page=50')
+      const result = await api.get<PagedResult<SchedulerRow>>(
+        `/debug/scheduler-actions?per_page=${PER_PAGE}&page=${page}`
+      )
       setSchedulerRows(result.rows)
       setSchedulerTotal(result.total)
     } finally {
@@ -138,10 +204,20 @@ export function Debug() {
     }
   }, [])
 
-  useEffect(() => { fetchLogs(scopeFilter) }, [scopeFilter, fetchLogs])
+  // ── Effects ──────────────────────────────────────────────────────────────
+
+  useEffect(() => { fetchLogs(scopeFilter, logsPage)    }, [scopeFilter, logsPage,    fetchLogs])
+  useEffect(() => { fetchDeferred(deferredPage)          }, [deferredPage,              fetchDeferred])
+  useEffect(() => { fetchScheduler(schedulerPage)        }, [schedulerPage,             fetchScheduler])
   useEffect(() => { api.get<DebugInfo>('/debug').then(setDebugInfo).catch(() => null) }, [])
-  useEffect(() => { fetchDeferred() }, [fetchDeferred])
-  useEffect(() => { fetchScheduler() }, [fetchScheduler])
+
+  // Reset to page 1 when scope filter changes
+  const handleScopeChange = (val: LogScope) => {
+    setScopeFilter(val)
+    setLogsPage(1)
+  }
+
+  // ── Actions ──────────────────────────────────────────────────────────────
 
   const handleClearLogs = async () => {
     if (!confirm('Clear all log entries?')) return
@@ -149,6 +225,8 @@ export function Debug() {
     try {
       await api.delete('/logs')
       setLogs([])
+      setLogsTotal(0)
+      setLogsPage(1)
     } finally {
       setClearing(false)
     }
@@ -159,9 +237,10 @@ export function Debug() {
     setResetting(action)
     try {
       await api.post('/debug/reset', { action })
-      // Refresh all data after reset
-      fetchDeferred()
-      fetchScheduler()
+      setDeferredPage(1)
+      setSchedulerPage(1)
+      fetchDeferred(1)
+      fetchScheduler(1)
       api.get<DebugInfo>('/debug').then(setDebugInfo).catch(() => null)
     } catch {
       alert('Reset failed.')
@@ -169,6 +248,8 @@ export function Debug() {
       setResetting(null)
     }
   }
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6">
@@ -235,7 +316,7 @@ export function Debug() {
               </div>
             </div>
             <Button variant="outline" size="sm" className="gap-1.5 border-[#390d58]/20 text-[#390d58]"
-              onClick={fetchDeferred} disabled={loadingDeferred}>
+              onClick={() => fetchDeferred(deferredPage)} disabled={loadingDeferred}>
               {loadingDeferred ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               Refresh
             </Button>
@@ -287,6 +368,11 @@ export function Debug() {
                 )}
               </TableBody>
             </Table>
+            <TablePagination
+              page={deferredPage}
+              total={deferredTotal}
+              onPage={p => setDeferredPage(p)}
+            />
           </div>
         </CardContent>
       </Card>
@@ -311,7 +397,7 @@ export function Debug() {
               </div>
             </div>
             <Button variant="outline" size="sm" className="gap-1.5 border-[#390d58]/20 text-[#390d58]"
-              onClick={fetchScheduler} disabled={loadingScheduler}>
+              onClick={() => fetchScheduler(schedulerPage)} disabled={loadingScheduler}>
               {loadingScheduler ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               Refresh
             </Button>
@@ -363,6 +449,11 @@ export function Debug() {
                 )}
               </TableBody>
             </Table>
+            <TablePagination
+              page={schedulerPage}
+              total={schedulerTotal}
+              onPage={p => setSchedulerPage(p)}
+            />
           </div>
         </CardContent>
       </Card>
@@ -377,12 +468,17 @@ export function Debug() {
                 <Bug className="h-5 w-5" />
               </div>
               <div>
-                <CardTitle className="text-lg text-[#390d58]">Log Viewer</CardTitle>
+                <CardTitle className="text-lg text-[#390d58]">
+                  Log Viewer
+                  {logsTotal > 0 && (
+                    <span className="ml-2 text-sm font-normal text-muted-foreground">({logsTotal})</span>
+                  )}
+                </CardTitle>
                 <CardDescription>System events and diagnostic information</CardDescription>
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <Select value={scopeFilter} onValueChange={val => setScopeFilter(val as LogScope)}>
+              <Select value={scopeFilter} onValueChange={val => handleScopeChange(val as LogScope)}>
                 <SelectTrigger className="w-36 border-[#390d58]/20">
                   <SelectValue placeholder="Filter" />
                 </SelectTrigger>
@@ -395,8 +491,7 @@ export function Debug() {
                 </SelectContent>
               </Select>
               <Button
-                variant="outline"
-                size="sm"
+                variant="outline" size="sm"
                 className="gap-1.5 text-destructive hover:bg-destructive hover:text-white hover:border-destructive"
                 onClick={handleClearLogs}
                 disabled={clearing}
@@ -439,28 +534,25 @@ export function Debug() {
                       key={log.id}
                       className={`font-mono text-sm ${index % 2 === 0 ? 'bg-white' : 'bg-[#390d58]/[0.02]'}`}
                     >
-                      <TableCell className="text-muted-foreground">
-                        {log.created_at}
-                      </TableCell>
+                      <TableCell className="text-muted-foreground">{log.created_at}</TableCell>
                       <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={`text-xs uppercase ${scopeColors[log.scope] ?? 'bg-muted text-muted-foreground'}`}
-                        >
+                        <Badge variant="outline"
+                          className={`text-xs uppercase ${scopeColors[log.scope] ?? 'bg-muted text-muted-foreground'}`}>
                           {log.scope}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-[#390d58] font-medium">
-                        {log.event}
-                      </TableCell>
-                      <TableCell className="text-foreground/80">
-                        {log.message}
-                      </TableCell>
+                      <TableCell className="text-[#390d58] font-medium">{log.event}</TableCell>
+                      <TableCell className="text-foreground/80">{log.message}</TableCell>
                     </TableRow>
                   ))
                 )}
               </TableBody>
             </Table>
+            <TablePagination
+              page={logsPage}
+              total={logsTotal}
+              onPage={p => setLogsPage(p)}
+            />
           </div>
         </CardContent>
       </Card>
@@ -482,10 +574,10 @@ export function Debug() {
         <CardContent>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              { action: 'clear-reports',  label: 'Clear Reports',          desc: 'Delete all report snapshots and content-area maps' },
-              { action: 'clear-deferred', label: 'Clear Deferred Queue',   desc: 'Delete all deferred request rows' },
-              { action: 'unschedule',     label: 'Unschedule Jobs',        desc: 'Cancel all pending Action Scheduler actions' },
-              { action: 'full-reset',     label: 'Full Reset',             desc: 'Clear reports, deferred, scheduler, and onboarding state' },
+              { action: 'clear-reports',  label: 'Clear Reports',        desc: 'Delete all report snapshots and content-area maps' },
+              { action: 'clear-deferred', label: 'Clear Deferred Queue', desc: 'Delete all deferred request rows' },
+              { action: 'unschedule',     label: 'Unschedule Jobs',      desc: 'Cancel all pending Action Scheduler actions' },
+              { action: 'full-reset',     label: 'Full Reset',           desc: 'Clear reports, deferred, scheduler, and onboarding state' },
             ].map(({ action, label, desc }) => (
               <button
                 key={action}

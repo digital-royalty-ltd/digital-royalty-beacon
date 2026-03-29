@@ -9,6 +9,7 @@ import { AutomationsPage }    from '@/pages/AutomationsPage'
 import { CampaignsPage }      from '@/pages/MissionControlPage'
 import { ConfigurationPage }  from '@/pages/ConfigurationPage'
 import { DebugPage }          from '@/pages/DebugPage'
+import { ApiPage }            from '@/pages/ApiPage'
 
 declare global {
   interface Window {
@@ -57,6 +58,7 @@ const router = createHashRouter([
       { path: 'campaigns',        element: <CampaignsPage /> },
       { path: 'configuration',    element: <ConfigurationPage />  },
       { path: 'debug',            element: <DebugPage />          },
+      { path: 'api',              element: <ApiPage />            },
     ],
   },
 ])

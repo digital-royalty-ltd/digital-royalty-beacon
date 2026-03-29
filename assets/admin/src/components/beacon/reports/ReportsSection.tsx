@@ -116,7 +116,7 @@ export function ReportsSection({ onSelect }: Props) {
           <div className="rounded-xl border border-[#390d58]/10 p-8 text-center text-muted-foreground">
             <FileJson className="h-8 w-8 mx-auto mb-3 opacity-30" />
             <p className="text-sm">No reports generated yet.</p>
-            <p className="text-xs mt-1">Run the report pipeline from the Dashboard to populate this list.</p>
+            <p className="text-xs mt-1">Go to the Dashboard and click "Run site analysis" to populate this list.</p>
           </div>
         ) : (
           <div className="rounded-xl border border-[#390d58]/10 overflow-hidden divide-y divide-[#390d58]/10">
