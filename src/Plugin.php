@@ -8,6 +8,7 @@ use DigitalRoyalty\Beacon\Admin\Config\AdminMenu;
 use DigitalRoyalty\Beacon\Admin\Screens\AutomationsScreen;
 use DigitalRoyalty\Beacon\Admin\Screens\ConfigurationScreen;
 use DigitalRoyalty\Beacon\Admin\Screens\ApiScreen;
+use DigitalRoyalty\Beacon\Admin\Screens\DevelopmentScreen;
 use DigitalRoyalty\Beacon\Admin\Screens\DebugScreen;
 use DigitalRoyalty\Beacon\Admin\Screens\HomeScreen;
 use DigitalRoyalty\Beacon\Admin\Screens\MissionControlScreen;
@@ -160,6 +161,7 @@ final class Plugin
             new ConfigurationScreen(),
             new DebugScreen(),
             new ApiScreen(),
+            new DevelopmentScreen(),
         ]);
 
         (new AdminMenu($screenRegistry))->register();

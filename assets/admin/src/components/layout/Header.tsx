@@ -1,13 +1,24 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Wrench, Zap, Target, Settings, Bug, Sparkles, Code2 } from 'lucide-react'
+import { LayoutDashboard, Wrench, Zap, Target, Settings, Bug, Code2, KeyRound } from 'lucide-react'
+
+function HexLogo({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" className={className} aria-hidden="true">
+      <path fill="currentColor" fillRule="evenodd"
+        d="M10,2 16,6 16,14 10,18 4,14 4,6Z M10,4.8 13.9,7.4 13.9,12.6 10,15.2 6.1,12.6 6.1,7.4Z" />
+      <circle cx="10" cy="10" r="2.2" fill="currentColor" />
+    </svg>
+  )
+}
 
 const navItems = [
   { to: '/',                label: 'Dashboard',      icon: LayoutDashboard, end: true },
   { to: '/workshop',        label: 'Workshop',        icon: Wrench                    },
   { to: '/automations',     label: 'Automations',     icon: Zap                       },
   { to: '/campaigns',       label: 'Campaigns',       icon: Target                    },
+  { to: '/development',     label: 'Development',     icon: Code2                     },
   { to: '/configuration',   label: 'Configuration',   icon: Settings                  },
-  { to: '/api',             label: 'API',             icon: Code2                     },
+  { to: '/api',             label: 'API',             icon: KeyRound                  },
   { to: '/debug',           label: 'Debug',           icon: Bug                       },
 ]
 
@@ -22,10 +33,10 @@ export function Header() {
       <div className="flex items-center justify-between px-6 py-4">
         <div className="flex items-center gap-4">
           <div className="flex items-center justify-center w-11 h-11 rounded-xl bg-white/15 backdrop-blur shrink-0">
-            <Sparkles className="h-5 w-5 text-white" />
+            <HexLogo className="h-7 w-7 text-white" />
           </div>
           <div className="leading-tight">
-            <p className="text-xl font-bold tracking-tight">Beacon</p>
+            <p className="text-2xl font-bold tracking-tight">WP Beacon</p>
             <p className="text-xs text-white/60">by Digital Royalty</p>
           </div>
         </div>

@@ -10,6 +10,7 @@ import {
   ChevronDown, ChevronUp, Gauge, ScrollText, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { api } from '@/lib/api'
+import { OnboardingOverlay } from '@/components/beacon/OnboardingOverlay'
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -576,6 +577,8 @@ function EndpointRow({ endpoint, onToggle }: {
   )
 }
 
+// ─── Intro banner ───────────────────────────────────────────────────────────
+
 // ─── Main page ──────────────────────────────────────────────────────────────
 
 export function ApiPage() {
@@ -642,6 +645,7 @@ export function ApiPage() {
 
   return (
     <div className="space-y-6">
+      <OnboardingOverlay screen="api" />
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[#390d58]">API</h1>

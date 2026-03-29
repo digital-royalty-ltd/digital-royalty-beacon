@@ -10,5 +10,6 @@ final class ScreenEnum
     public const CONFIGURATION = 'dr-beacon-configuration';
     public const WORKSHOP = 'dr-beacon-workshop';
     public const CAMPAIGNS = 'dr-beacon-campaigns';
-    public const API       = 'dr-beacon-api';
+    public const API         = 'dr-beacon-api';
+    public const DEVELOPMENT = 'dr-beacon-development';
 }

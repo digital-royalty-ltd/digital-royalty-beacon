@@ -89,6 +89,11 @@
   text-decoration: none;
 }
 
+/* Header: WP sets `p { margin: 1em 0 }` as unlayered CSS — reset it. */
+#beacon-root header p {
+  margin: 0;
+}
+
 /* Header: all links inherit white from the purple header background.
    The active nav tab gets purple text to contrast against its white pill. */
 #beacon-root header a {
@@ -110,6 +115,43 @@
 }
 #beacon-root main a:hover {
   color: #4a1170;
+}
+
+/* Active sidebar links (e.g. Workshop tool list) have a purple bg — keep text white */
+#beacon-root main a[data-active] {
+  color: #ffffff;
+}
+#beacon-root main a[data-active]:hover {
+  color: #ffffff;
+}
+
+/* ── Dark page (Development tab) — WP override isolation ────────────────────
+   WP admin ships unlayered CSS that sets colours and font-sizes on h*, p, a
+   etc. Unlayered CSS beats Tailwind's @layer utilities regardless of
+   specificity. We counter this with higher-specificity unlayered rules that
+   use `revert-layer`, which hands the property back to @layer utilities so
+   Tailwind's colour/size utilities take effect normally.
+   ─────────────────────────────────────────────────────────────────────────── */
+#beacon-root .beacon-dark-page h1,
+#beacon-root .beacon-dark-page h2,
+#beacon-root .beacon-dark-page h3,
+#beacon-root .beacon-dark-page h4,
+#beacon-root .beacon-dark-page h5,
+#beacon-root .beacon-dark-page h6,
+#beacon-root .beacon-dark-page p,
+#beacon-root .beacon-dark-page span,
+#beacon-root .beacon-dark-page li,
+#beacon-root .beacon-dark-page div {
+  color: revert-layer;
+  font-size: revert-layer;
+  font-weight: revert-layer;
+  line-height: revert-layer;
+}
+
+/* Also override the main a rule for the dark page */
+#beacon-root main .beacon-dark-page a,
+#beacon-root main .beacon-dark-page a:hover {
+  color: revert-layer;
 }
 
 /* Radix portals (Select dropdowns, etc.) need access to the CSS vars */

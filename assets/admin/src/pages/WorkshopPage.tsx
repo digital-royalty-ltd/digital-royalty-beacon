@@ -86,6 +86,7 @@ function WorkshopNav() {
               <NavLink
                 key={tool.slug}
                 to={`/workshop/${tool.slug}`}
+                data-active={slug === tool.slug ? '' : undefined}
                 className={cn(
                   'flex items-center px-4 py-1.5 text-sm transition-colors',
                   slug === tool.slug

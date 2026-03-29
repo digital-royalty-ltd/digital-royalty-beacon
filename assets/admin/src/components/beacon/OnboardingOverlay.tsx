@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
-  LayoutDashboard, Wrench, Zap, Target, Settings, Bug,
+  LayoutDashboard, Wrench, Zap, Target, Settings, Bug, KeyRound,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 
@@ -34,7 +34,7 @@ const SCREENS: Record<string, ScreenConfig> = {
     gradient:    'from-[#390d58] to-violet-600',
   },
   campaigns: {
-    title:       'Digital Royalty\'s playbooks, executed by AI',
+    title:       'Digital Royalty\'s BNoplaybooks, executed by AI',
     description: 'Every campaign strategy in Beacon is rooted in what we\'ve proven works over years as a full-service agency. You choose the approach — AI handles the execution, guided by our methodology every step of the way.',
     icon:        <Target className="h-14 w-14 text-white/80" />,
     gradient:    'from-[#2d0a47] to-[#390d58]',
@@ -50,6 +50,12 @@ const SCREENS: Record<string, ScreenConfig> = {
     description: 'Every job, every log entry, every queued action — visible and in your control. Beacon works hard in the background; this tab makes sure it\'s doing exactly what you expect.',
     icon:        <Bug className="h-14 w-14 text-white/80" />,
     gradient:    'from-slate-700 to-[#390d58]',
+  },
+  api: {
+    title:       'Your site, available as an API.',
+    description: 'Beacon gives you a ready-to-use REST API for your WordPress content — no custom development required. Create and distribute API keys to developers, apps, or external services, and control exactly which endpoints they can access. Each key carries its own rate limits so you stay in full control of usage.',
+    icon:        <KeyRound className="h-14 w-14 text-white/80" />,
+    gradient:    'from-[#390d58] to-indigo-700',
   },
 }
 

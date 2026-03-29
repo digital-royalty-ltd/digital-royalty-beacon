@@ -510,58 +510,6 @@ function IntelligenceDashboard({ data, onRefresh, refreshing }: {
         </CardContent>
       </Card>
 
-      {/* Report freshness cards */}
-      <div>
-        <p className="text-sm font-medium text-[#390d58] mb-3">Report freshness</p>
-        <div className="grid gap-4 md:grid-cols-3">
-          {Object.entries(REPORT_META).map(([type, meta]) => {
-            const report    = data.reports.find(r => r.type === type)
-            const staleDays = data.report_stale_days[type] ?? null
-            const fresh     = isReportFresh(report, staleDays)
-            const submitted = report?.submitted_at ? new Date(report.submitted_at) : null
-
-            const ageLabel = submitted
-              ? (() => {
-                  const days = Math.floor((Date.now() - submitted.getTime()) / 86_400_000)
-                  return days === 0 ? 'Today' : days === 1 ? 'Yesterday' : `${days}d ago`
-                })()
-              : 'Never run'
-
-            return (
-              <Card key={type} className={`border overflow-hidden ${fresh ? 'border-emerald-200' : 'border-amber-200'}`}>
-                <div className={`h-1 ${fresh ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-                <CardContent className="pt-4 pb-4">
-                  <div className="flex items-center gap-3 mb-2">
-                    <span className="text-[#390d58]">{meta.icon}</span>
-                    <p className="text-sm font-medium text-[#390d58]">{meta.label}</p>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <Clock className="h-3 w-3" />
-                      {ageLabel}
-                    </div>
-                    <Badge variant="outline" className={`text-[10px] ${
-                      fresh
-                        ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
-                        : submitted
-                          ? 'bg-amber-500/10 text-amber-700 border-amber-500/20'
-                          : 'bg-muted text-muted-foreground border-border'
-                    }`}>
-                      {fresh ? 'Fresh' : submitted ? 'Stale' : 'Missing'}
-                    </Badge>
-                  </div>
-                  {staleDays && (
-                    <p className="text-[10px] text-muted-foreground/60 mt-1.5">
-                      Refreshed every {staleDays} days
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-            )
-          })}
-        </div>
-      </div>
-
       {/* Quick actions */}
       <div>
         <p className="text-sm font-medium text-[#390d58] mb-3">Quick actions</p>
