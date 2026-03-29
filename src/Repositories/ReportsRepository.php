@@ -165,6 +165,30 @@ final class ReportsRepository
         $this->upsertGenerated($type, $version, $payloadJson, $hash, $generatedAt);
     }
 
+    /**
+     * Returns the latest row for every distinct report type.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function allLatest(): array
+    {
+        $table = ReportsTable::tableName($this->wpdb);
+
+        $rows = $this->wpdb->get_results(
+            "SELECT r.*
+             FROM {$table} r
+             INNER JOIN (
+                 SELECT type, MAX(version) AS max_version
+                 FROM {$table}
+                 GROUP BY type
+             ) latest ON r.type = latest.type AND r.version = latest.max_version
+             ORDER BY r.type ASC",
+            ARRAY_A
+        );
+
+        return is_array($rows) ? $rows : [];
+    }
+
     public function markSubmitted(string $type, int $version, string $submittedAt): void
     {
         $table = \DigitalRoyalty\Beacon\Database\ReportsTable::tableName($this->wpdb);
@@ -181,6 +205,12 @@ final class ReportsRepository
             ['%s', '%s', '%s', '%s'],
             ['%s', '%d']
         );
+    }
+
+    public function deleteAll(): void
+    {
+        $table = ReportsTable::tableName($this->wpdb);
+        $this->wpdb->query("DELETE FROM {$table}");
     }
 
 }

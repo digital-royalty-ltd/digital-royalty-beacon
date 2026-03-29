@@ -2,30 +2,53 @@
 
 namespace DigitalRoyalty\Beacon;
 
-use DigitalRoyalty\Beacon\Admin\Actions\Views\DebugPageAdminActions;
-use DigitalRoyalty\Beacon\Admin\Actions\Views\HomePageAdminActions;
-use DigitalRoyalty\Beacon\Admin\Actions\Reports\ReportAdminActions;
-use DigitalRoyalty\Beacon\Admin\Actions\Views\Tools\ContentGeneratorAdminActions;
+use DigitalRoyalty\Beacon\Admin\Actions\Workshop\UserSwitcherAdminActions;
+use DigitalRoyalty\Beacon\Admin\Assets\AdminAssets;
 use DigitalRoyalty\Beacon\Admin\Config\AdminMenu;
+use DigitalRoyalty\Beacon\Admin\Screens\AutomationsScreen;
 use DigitalRoyalty\Beacon\Admin\Screens\ConfigurationScreen;
 use DigitalRoyalty\Beacon\Admin\Screens\DebugScreen;
 use DigitalRoyalty\Beacon\Admin\Screens\HomeScreen;
+use DigitalRoyalty\Beacon\Admin\Screens\MissionControlScreen;
 use DigitalRoyalty\Beacon\Admin\Screens\ScreenRegistry;
-use DigitalRoyalty\Beacon\Admin\Screens\ToolsScreen;
-use DigitalRoyalty\Beacon\Admin\Views\ConfigurationView;
-use DigitalRoyalty\Beacon\Admin\Views\DebugView;
-use DigitalRoyalty\Beacon\Admin\Views\HomeView;
-use DigitalRoyalty\Beacon\Admin\Views\ToolsView;
+use DigitalRoyalty\Beacon\Admin\Screens\WorkshopScreen;
 use DigitalRoyalty\Beacon\Database\DeferredRequestsTable;
+use DigitalRoyalty\Beacon\Database\FourOhFourLogsTable;
 use DigitalRoyalty\Beacon\Database\LogsTable;
+use DigitalRoyalty\Beacon\Database\RedirectsTable;
 use DigitalRoyalty\Beacon\Database\ReportsTable;
 use DigitalRoyalty\Beacon\Repositories\DeferredRequestsRepository;
+use DigitalRoyalty\Beacon\Repositories\FourOhFourLogsRepository;
+use DigitalRoyalty\Beacon\Repositories\LogsRepository;
+use DigitalRoyalty\Beacon\Repositories\RedirectsRepository;
+use DigitalRoyalty\Beacon\Repositories\ReportsRepository;
+use DigitalRoyalty\Beacon\Repositories\SchedulerRepository;
+use DigitalRoyalty\Beacon\Rest\Admin\AdminRestService;
 use DigitalRoyalty\Beacon\Rest\RestService;
 use DigitalRoyalty\Beacon\Support\Enums\Deferred\DeferredRequestKeyEnum;
 use DigitalRoyalty\Beacon\Systems\Deferred\DeferredCompletionRouter;
 use DigitalRoyalty\Beacon\Systems\Deferred\DeferredRequestRunner;
 use DigitalRoyalty\Beacon\Systems\Deferred\Handlers\ContentGeneratorDraftHandler;
+use DigitalRoyalty\Beacon\Systems\Deferred\Handlers\GapAnalysisResultHandler;
+use DigitalRoyalty\Beacon\Systems\MaintenanceMode\MaintenanceModeHandler;
+use DigitalRoyalty\Beacon\Systems\Redirects\RedirectHandler;
+use DigitalRoyalty\Beacon\Systems\Workshop\AnnouncementBarHandler;
+use DigitalRoyalty\Beacon\Systems\Workshop\CodeInjectionHandler;
+use DigitalRoyalty\Beacon\Systems\Workshop\CustomAdminCssHandler;
+use DigitalRoyalty\Beacon\Systems\Workshop\CustomLoginUrlHandler;
+use DigitalRoyalty\Beacon\Systems\Workshop\DisableCommentsHandler;
+use DigitalRoyalty\Beacon\Systems\Workshop\DisableFileEditingHandler;
+use DigitalRoyalty\Beacon\Systems\Workshop\DisableXmlRpcHandler;
+use DigitalRoyalty\Beacon\Systems\Workshop\FourOhFourMonitorHandler;
+use DigitalRoyalty\Beacon\Systems\Workshop\LoginBrandingHandler;
+use DigitalRoyalty\Beacon\Systems\Workshop\PostExpiryHandler;
+use DigitalRoyalty\Beacon\Systems\Workshop\RobotsTxtHandler;
+use DigitalRoyalty\Beacon\Systems\Workshop\SanitiseFilenamesHandler;
+use DigitalRoyalty\Beacon\Systems\Workshop\SmtpHandler;
+use DigitalRoyalty\Beacon\Systems\Workshop\SvgSupportHandler;
+use DigitalRoyalty\Beacon\Systems\Workshop\UserSwitcherHandler;
 use DigitalRoyalty\Beacon\Systems\Reports\ReportService;
+use DigitalRoyalty\Beacon\Systems\Updater\GitHubUpdater;
 
 /**
  * Main plugin bootstrap class.
@@ -33,7 +56,7 @@ use DigitalRoyalty\Beacon\Systems\Reports\ReportService;
  * Responsible for coordinating initialization of:
  * - Database schema
  * - Core services
- * - Admin actions and UI
+ * - Admin UI (React SPA mount)
  * - REST endpoints
  * - Deferred async processing
  *
@@ -41,14 +64,8 @@ use DigitalRoyalty\Beacon\Systems\Reports\ReportService;
  */
 final class Plugin
 {
-    /**
-     * Singleton instance.
-     */
     private static ?self $instance = null;
 
-    /**
-     * Retrieve singleton instance of the plugin.
-     */
     public static function instance(): self
     {
         if (self::$instance === null) {
@@ -58,48 +75,30 @@ final class Plugin
         return self::$instance;
     }
 
-    /**
-     * Boot the plugin.
-     *
-     * Called on plugin load to initialize all subsystems.
-     */
     public function boot(): void
     {
         $this->ensureSchema();
 
         $this->registerServices();
+        $this->registerUpdater();
         $this->registerAdminActions();
         $this->registerAdminUi();
         $this->registerRest();
         $this->registerDeferred();
+        $this->registerRedirects();
+        $this->registerWorkshopHandlers();
     }
 
-    /**
-     * Plugin activation hook.
-     *
-     * Ensures required database tables exist.
-     */
     public static function activate(): void
     {
         self::installTables();
     }
 
-    /**
-     * Plugin deactivation hook.
-     *
-     * Reserved for future cleanup tasks such as unscheduling cron jobs.
-     */
     public static function deactivate(): void
     {
         // Later: unschedule cron, release locks, etc.
     }
 
-    /**
-     * Ensure database schema exists.
-     *
-     * This runs in admin context to guard against missed activation hooks
-     * on certain hosting environments.
-     */
     private function ensureSchema(): void
     {
         if (!is_admin()) {
@@ -109,83 +108,74 @@ final class Plugin
         self::installTables();
     }
 
-    /**
-     * Install all plugin database tables.
-     *
-     * Centralized so schema changes are defined in one place.
-     */
     private static function installTables(): void
     {
         LogsTable::install();
         ReportsTable::install();
         DeferredRequestsTable::install();
+        RedirectsTable::install();
+        FourOhFourLogsTable::install();
     }
 
-    /**
-     * Register core backend services.
-     */
     private function registerServices(): void
     {
         (new ReportService())->register();
     }
 
-    /**
-     * Register all admin-side POST actions and handlers.
-     */
-    private function registerAdminActions(): void
+    private function registerUpdater(): void
     {
-        (new ReportAdminActions())->register();
-        (new HomePageAdminActions())->register();
-        (new DebugPageAdminActions())->register();
-        (new ContentGeneratorAdminActions())->register();
+        (new GitHubUpdater())->register();
     }
 
     /**
-     * Register admin UI screens, views, and menu structure.
+     * Register admin-post.php action handlers that still require a full page load.
+     * All other mutations are handled by the REST API (beacon/v1/admin/*).
      */
+    private function registerAdminActions(): void
+    {
+        // User switching requires a full page load to set auth cookies — cannot be done via REST.
+        (new UserSwitcherAdminActions())->register();
+    }
+
     private function registerAdminUi(): void
     {
         if (!is_admin()) {
             return;
         }
 
-        $homeView = new HomeView();
-        $toolsView = new ToolsView();
-        $configurationView = new ConfigurationView();
-        $debugView = new DebugView();
-
         $screenRegistry = new ScreenRegistry([
-            new HomeScreen($homeView),
-            new ToolsScreen($toolsView),
-            new ConfigurationScreen($configurationView),
-            new DebugScreen($debugView),
+            new HomeScreen(),
+            new WorkshopScreen(),
+            new AutomationsScreen(),
+            new MissionControlScreen(),
+            new ConfigurationScreen(),
+            new DebugScreen(),
         ]);
 
         (new AdminMenu($screenRegistry))->register();
+        (new AdminAssets())->register();
     }
 
-    /**
-     * Register REST API endpoints for Beacon.
-     */
     private function registerRest(): void
     {
         (new RestService())->register();
+
+        global $wpdb;
+        (new AdminRestService(
+            new ReportsRepository($wpdb),
+            new LogsRepository($wpdb),
+            new FourOhFourLogsRepository($wpdb),
+            new RedirectsRepository($wpdb),
+            new DeferredRequestsRepository($wpdb),
+            new SchedulerRepository($wpdb)
+        ))->register();
     }
 
-    /**
-     * Register deferred async processing system.
-     *
-     * Wires:
-     * - DeferredRequestsRepository
-     * - Completion router
-     * - Tool-specific completion handlers
-     * - Cron-based runner
-     */
     private function registerDeferred(): void
     {
         global $wpdb;
 
-        $repo = new DeferredRequestsRepository($wpdb);
+        $repo   = new DeferredRequestsRepository($wpdb);
         $router = new DeferredCompletionRouter();
 
         $router->register(
@@ -193,12 +183,49 @@ final class Plugin
             new ContentGeneratorDraftHandler()
         );
 
+        $router->register(
+            DeferredRequestKeyEnum::GAP_ANALYSIS,
+            new GapAnalysisResultHandler()
+        );
+
         $runner = new DeferredRequestRunner($repo, $router);
         $runner->register();
 
-        // Ensure cron hook is scheduled
         if (!wp_next_scheduled(DeferredRequestRunner::CRON_HOOK)) {
             wp_schedule_single_event(time() + 60, DeferredRequestRunner::CRON_HOOK);
         }
+    }
+
+    private function registerRedirects(): void
+    {
+        global $wpdb;
+
+        (new RedirectHandler(new RedirectsRepository($wpdb)))->register();
+        (new MaintenanceModeHandler())->register();
+    }
+
+    /**
+     * Register Workshop tool system handlers.
+     * Each handler reads its own option to decide whether to activate.
+     */
+    private function registerWorkshopHandlers(): void
+    {
+        global $wpdb;
+
+        (new SvgSupportHandler())->register();
+        (new DisableCommentsHandler())->register();
+        (new DisableXmlRpcHandler())->register();
+        (new DisableFileEditingHandler())->register();
+        (new SanitiseFilenamesHandler())->register();
+        (new CodeInjectionHandler())->register();
+        (new CustomAdminCssHandler())->register();
+        (new SmtpHandler())->register();
+        (new RobotsTxtHandler())->register();
+        (new PostExpiryHandler())->register();
+        (new FourOhFourMonitorHandler(new FourOhFourLogsRepository($wpdb)))->register();
+        (new CustomLoginUrlHandler())->register();
+        (new LoginBrandingHandler())->register();
+        (new AnnouncementBarHandler())->register();
+        (new UserSwitcherHandler())->register();
     }
 }

@@ -168,6 +168,87 @@ final class ApiClient
     }
 
     /**
+     * Initiate an OAuth connection for a third-party provider.
+     *
+     * Laravel returns the full OAuth redirect URL for the given provider.
+     * The plugin redirects the user to that URL; Laravel owns the client credentials.
+     *
+     * On success: $response->data['url'] contains the OAuth redirect URL.
+     */
+    public function initiateOAuth(string $provider, string $callbackUrl, string $state): ApiResponse
+    {
+        return $this->request(
+            method: 'POST',
+            path: 'oauth/initiate',
+            payload: [
+                'provider'     => $provider,
+                'callback_url' => $callbackUrl,
+                'state'        => $state,
+            ],
+            includeClientMeta: true,
+            requireAuth: true
+        );
+    }
+
+    /**
+     * Complete an OAuth flow by forwarding the provider's callback code to Laravel.
+     *
+     * Laravel exchanges the code for tokens and stores them against the project.
+     */
+    public function completeOAuth(string $provider, string $code, string $state, string $callbackUrl): ApiResponse
+    {
+        return $this->request(
+            method: 'POST',
+            path: 'oauth/callback',
+            payload: [
+                'provider'     => $provider,
+                'code'         => $code,
+                'state'        => $state,
+                'callback_url' => $callbackUrl,
+            ],
+            includeClientMeta: true,
+            requireAuth: true
+        );
+    }
+
+    /**
+     * Disconnect a previously connected OAuth provider.
+     *
+     * Laravel revokes and deletes the stored tokens for this provider and project.
+     */
+    public function disconnectOAuth(string $provider): ApiResponse
+    {
+        return $this->request(
+            method: 'DELETE',
+            path: 'oauth/' . rawurlencode($provider),
+            payload: [],
+            includeClientMeta: true,
+            requireAuth: true
+        );
+    }
+
+    /**
+     * Run a Content Gap Analysis.
+     *
+     * Sends the site profile, content areas, and sitemap to the Beacon API.
+     * Laravel dispatches a queue job and returns 202; the deferred system
+     * polls and routes completion to GapAnalysisResultHandler.
+     *
+     * @param array<string,mixed> $payload
+     */
+    public function runGapAnalysis(array $payload): ApiResponse
+    {
+        return $this->request(
+            method: 'POST',
+            path: 'tools/gap-analysis/run',
+            payload: $payload,
+            includeClientMeta: true,
+            requireAuth: true,
+            requestKey: DeferredRequestKeyEnum::GAP_ANALYSIS
+        );
+    }
+
+    /**
      * Poll a previously deferred request.
      *
      * $pollPath should be stored as a relative path under /beacon/{version}/...

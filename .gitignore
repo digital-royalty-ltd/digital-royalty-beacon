@@ -1,3 +1,6 @@
 .idea/
 .claude/
 CLAUDE.md
+vercel/
+node_modules/
+dist/

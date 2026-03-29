@@ -39,35 +39,51 @@ final class LogsRepository
     }
 
     /**
-     * @param array{per_page?:int,page?:int} $args
+     * @param array{per_page?:int,page?:int,scope?:string|null} $args
      * @return array{rows: array<int, array<string,mixed>>, total: int}
      */
     public function paginate(array $args = []): array
     {
         $perPage = isset($args['per_page']) ? (int) $args['per_page'] : 50;
-        $page = isset($args['page']) ? (int) $args['page'] : 1;
+        $page    = isset($args['page'])     ? (int) $args['page']     : 1;
+        $scope   = isset($args['scope'])    ? (string) $args['scope'] : null;
 
         $perPage = max(10, min(200, $perPage));
-        $page = max(1, $page);
-
-        $offset = ($page - 1) * $perPage;
+        $page    = max(1, $page);
+        $offset  = ($page - 1) * $perPage;
 
         $table = LogsTable::tableName($this->wpdb);
 
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-        $total = (int) $this->wpdb->get_var("SELECT COUNT(*) FROM {$table}");
+        if ($scope !== null && $scope !== '') {
+            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+            $total = (int) $this->wpdb->get_var(
+                $this->wpdb->prepare("SELECT COUNT(*) FROM {$table} WHERE scope = %s", $scope)
+            );
 
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-        $sql = "SELECT * FROM {$table} ORDER BY id DESC LIMIT %d OFFSET %d";
+            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+            $sql = "SELECT * FROM {$table} WHERE scope = %s ORDER BY id DESC LIMIT %d OFFSET %d";
 
-        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
-        $rows = (array) $this->wpdb->get_results(
-            $this->wpdb->prepare($sql, $perPage, $offset),
-            ARRAY_A
-        );
+            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+            $rows = (array) $this->wpdb->get_results(
+                $this->wpdb->prepare($sql, $scope, $perPage, $offset),
+                ARRAY_A
+            );
+        } else {
+            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+            $total = (int) $this->wpdb->get_var("SELECT COUNT(*) FROM {$table}");
+
+            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+            $sql = "SELECT * FROM {$table} ORDER BY id DESC LIMIT %d OFFSET %d";
+
+            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+            $rows = (array) $this->wpdb->get_results(
+                $this->wpdb->prepare($sql, $perPage, $offset),
+                ARRAY_A
+            );
+        }
 
         return [
-            'rows' => $rows,
+            'rows'  => $rows,
             'total' => $total,
         ];
     }

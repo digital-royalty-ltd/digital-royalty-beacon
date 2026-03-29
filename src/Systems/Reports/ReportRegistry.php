@@ -5,6 +5,7 @@ namespace DigitalRoyalty\Beacon\Systems\Reports;
 use DigitalRoyalty\Beacon\Systems\Reports\ReportGeneratorInterface;
 use DigitalRoyalty\Beacon\Systems\Reports\Generators\WebsiteProfileReport;
 use DigitalRoyalty\Beacon\Systems\Reports\Generators\WebsiteContentAreasReport;
+use DigitalRoyalty\Beacon\Systems\Reports\Generators\WebsiteSitemapReport;
 
 final class ReportRegistry
 {
@@ -16,6 +17,7 @@ final class ReportRegistry
         return [
             new WebsiteProfileReport(),
             new WebsiteContentAreasReport(),
+            new WebsiteSitemapReport(),
         ];
     }
 

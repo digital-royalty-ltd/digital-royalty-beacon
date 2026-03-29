@@ -19,7 +19,7 @@ final class AdminUrl
     {
         return add_query_arg(
             array_merge([
-                'page' => ScreenEnum::TOOLS,
+                'page' => ScreenEnum::AUTOMATIONS,
                 'tool' => $toolSlug,
             ], $query),
             admin_url('admin.php')
