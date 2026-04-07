@@ -13,12 +13,15 @@ final class CustomAdminCssHandler
 
     public function output(): void
     {
-        $css = (string) get_option(CustomAdminCssEnum::OPTION_CSS, '');
+        $settings = get_option(CustomAdminCssEnum::OPTION_CSS, '');
+        $css = is_array($settings)
+            ? (string) ($settings['css'] ?? '')
+            : (string) $settings;
 
         if ($css === '') {
             return;
         }
 
-        echo '<style id="dr-beacon-admin-css">' . wp_strip_all_tags($css) . '</style>' . "\n"; // phpcs:ignore
+        echo '<style id="dr-beacon-admin-css">' . $css . '</style>' . "\n"; // phpcs:ignore
     }
 }

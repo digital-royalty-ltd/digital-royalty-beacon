@@ -15,30 +15,52 @@ final class SanitiseFilenamesHandler
         add_filter('sanitize_file_name', [$this, 'sanitise'], 10);
     }
 
+    /**
+     * @return array<string, mixed>
+     */
+    public static function settings(): array
+    {
+        $settings = (array) get_option(WorkshopToggleEnum::SANITISE_FILENAMES_SETTINGS, []);
+
+        return [
+            'lowercase'    => !array_key_exists('lowercase', $settings) || !empty($settings['lowercase']),
+            'transliterate' => !array_key_exists('transliterate', $settings) || !empty($settings['transliterate']),
+            'separator'    => ($settings['separator'] ?? 'hyphen') === 'underscore' ? 'underscore' : 'hyphen',
+        ];
+    }
+
     public function sanitise(string $filename): string
     {
-        $info = pathinfo($filename);
-        $ext  = isset($info['extension']) ? '.' . strtolower($info['extension']) : '';
-        $name = $info['filename'];
+        return self::preview($filename, self::settings());
+    }
 
-        // Lowercase
-        $name = strtolower($name);
+    /**
+     * @param array<string, mixed> $settings
+     */
+    public static function preview(string $filename, array $settings): string
+    {
+        $info      = pathinfo($filename);
+        $extension = isset($info['extension']) ? '.' . strtolower((string) $info['extension']) : '';
+        $name      = (string) ($info['filename'] ?? $filename);
+        $separator = ($settings['separator'] ?? 'hyphen') === 'underscore' ? '_' : '-';
 
-        // Replace spaces and underscores with hyphens
-        $name = preg_replace('/[\s_]+/', '-', $name) ?? $name;
+        if (!empty($settings['transliterate'])) {
+            $name = remove_accents($name);
+        }
 
-        // Remove any character that is not alphanumeric or a hyphen
-        $name = preg_replace('/[^a-z0-9\-]/', '', $name) ?? $name;
+        if (!empty($settings['lowercase'])) {
+            $name = strtolower($name);
+        }
 
-        // Collapse multiple hyphens
-        $name = preg_replace('/-{2,}/', '-', $name) ?? $name;
-
-        $name = trim($name, '-');
+        $name = preg_replace('/[\s_]+/', $separator, $name) ?? $name;
+        $name = preg_replace('/[^A-Za-z0-9\-_.]/', '', $name) ?? $name;
+        $name = preg_replace('/[' . preg_quote($separator, '/') . ']{2,}/', $separator, $name) ?? $name;
+        $name = trim($name, '-_.');
 
         if ($name === '') {
             $name = 'file';
         }
 
-        return $name . $ext;
+        return $name . $extension;
     }
 }

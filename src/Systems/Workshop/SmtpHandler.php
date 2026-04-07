@@ -16,6 +16,8 @@ final class SmtpHandler
         }
 
         add_action('phpmailer_init', [$this, 'configure']);
+        add_action('wp_mail_succeeded', [$this, 'logSuccess']);
+        add_action('wp_mail_failed', [$this, 'logFailure']);
     }
 
     public function configure(PHPMailer $mailer): void
@@ -38,9 +40,44 @@ final class SmtpHandler
 
         $fromEmail = (string) ($settings['from_email'] ?? '');
         $fromName  = (string) ($settings['from_name'] ?? get_bloginfo('name'));
+        $forceFrom = !empty($settings['force_from']);
 
         if ($fromEmail !== '') {
-            $mailer->setFrom($fromEmail, $fromName);
+            $isDefault = in_array($mailer->From, ['', 'root@localhost', 'wordpress@' . ($_SERVER['SERVER_NAME'] ?? 'localhost')], true);
+
+            if ($forceFrom || $isDefault) {
+                $mailer->setFrom($fromEmail, $fromName);
+            }
         }
+    }
+
+    public function logSuccess(array $data): void
+    {
+        $this->appendLog([
+            'to'      => is_array($data['to']) ? implode(', ', $data['to']) : (string) $data['to'],
+            'subject' => (string) ($data['subject'] ?? ''),
+            'sent_at' => current_time('mysql'),
+            'ok'      => true,
+        ]);
+    }
+
+    public function logFailure(\WP_Error $error): void
+    {
+        $data = $error->get_error_data();
+        $this->appendLog([
+            'to'      => is_array($data['to'] ?? '') ? implode(', ', $data['to']) : (string) ($data['to'] ?? ''),
+            'subject' => (string) ($data['subject'] ?? ''),
+            'sent_at' => current_time('mysql'),
+            'ok'      => false,
+            'error'   => $error->get_error_message(),
+        ]);
+    }
+
+    private function appendLog(array $entry): void
+    {
+        $log = (array) get_option('dr_beacon_smtp_mail_log', []);
+        array_unshift($log, $entry);
+        $log = array_slice($log, 0, 50);
+        update_option('dr_beacon_smtp_mail_log', $log, false);
     }
 }

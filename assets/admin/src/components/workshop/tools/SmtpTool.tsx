@@ -4,17 +4,38 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Loader2, Save, Send } from 'lucide-react'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Badge } from '@/components/ui/badge'
+import { Eye, EyeOff, Loader2, Save, Send } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
+
+interface MailLogEntry {
+  to: string
+  subject: string
+  sent_at: string
+  ok: boolean
+  error?: string
+}
 
 interface SmtpData {
   host: string; port: number; encryption: string
   username: string; from_email: string; from_name: string
+  force_from: boolean
+  has_password: boolean
+  last_test?: {
+    ok?: boolean
+    to?: string
+    sent_at?: string
+    host?: string
+    message?: string
+  }
+  mail_log?: MailLogEntry[]
 }
 
 export function SmtpTool() {
-  const [data,      setData]      = useState<SmtpData>({ host: '', port: 587, encryption: 'tls', username: '', from_email: '', from_name: '' })
+  const [data,      setData]      = useState<SmtpData>({ host: '', port: 587, encryption: 'tls', username: '', from_email: '', from_name: '', force_from: true, has_password: false })
   const [password,  setPassword]  = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [loading,   setLoading]   = useState(true)
   const [saving,    setSaving]    = useState(false)
   const [testTo,    setTestTo]    = useState('')
@@ -26,6 +47,11 @@ export function SmtpTool() {
   }, [])
 
   const set = <K extends keyof SmtpData>(k: K, v: SmtpData[K]) => setData(d => ({ ...d, [k]: v }))
+  const validation = [
+    data.host.trim() === '' ? 'SMTP host is required.' : '',
+    data.port <= 0 ? 'SMTP port must be greater than 0.' : '',
+    data.from_email && !data.from_email.includes('@') ? 'From email must be a valid email address.' : '',
+  ].filter(Boolean)
 
   const handleSave = async () => {
     setSaving(true); setMsg(null)
@@ -33,6 +59,7 @@ export function SmtpTool() {
       await api.post('/workshop/smtp', { ...data, password })
       setMsg({ ok: true, text: 'Saved.' })
       setPassword('')
+      setData(current => ({ ...current, has_password: current.has_password || password !== '' }))
     } catch (e) {
       setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Save failed.' })
     } finally {
@@ -86,15 +113,39 @@ export function SmtpTool() {
           )}
           <div className="grid sm:grid-cols-2 gap-4">
             {field('Username', <Input value={data.username} onChange={e => set('username', e.target.value)} placeholder="user@example.com" className="border-[#390d58]/20 focus-visible:ring-[#390d58]" />)}
-            {field('Password', <Input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Leave blank to keep current" className="border-[#390d58]/20 focus-visible:ring-[#390d58]" />)}
+            {field('Password',
+              <div className="flex gap-2">
+                <Input type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} placeholder={data.has_password ? 'Leave blank to keep stored password' : 'Enter SMTP password'} className="border-[#390d58]/20 focus-visible:ring-[#390d58]" />
+                <Button type="button" variant="outline" onClick={() => setShowPassword(v => !v)}>
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
+            )}
+          </div>
+          <div className="rounded-xl border border-[#390d58]/10 bg-[#390d58]/5 p-4 text-sm text-muted-foreground">
+            Stored password: {data.has_password ? 'Yes' : 'No'}.
           </div>
           <div className="grid sm:grid-cols-2 gap-4">
             {field('From Email', <Input value={data.from_email} onChange={e => set('from_email', e.target.value)} placeholder="no-reply@example.com" className="border-[#390d58]/20 focus-visible:ring-[#390d58]" />)}
             {field('From Name', <Input value={data.from_name} onChange={e => set('from_name', e.target.value)} placeholder="My Site" className="border-[#390d58]/20 focus-visible:ring-[#390d58]" />)}
           </div>
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <input type="checkbox" checked={data.force_from} onChange={e => set('force_from', e.target.checked)} />
+            Force configured from-name and from-email even if another plugin changes them.
+          </label>
+          {validation.length > 0 && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              {validation.map(item => <p key={item}>{item}</p>)}
+            </div>
+          )}
+          {data.last_test?.sent_at && (
+            <div className="rounded-xl border border-[#390d58]/10 bg-[#390d58]/[0.02] p-4 text-sm text-muted-foreground">
+              Last test: {data.last_test.sent_at} to {data.last_test.to} via {data.last_test.host || 'configured host'}.
+            </div>
+          )}
           <div className="flex items-center justify-between pt-1">
             {msg && <p className={`text-sm ${msg.ok ? 'text-emerald-600' : 'text-red-600'}`}>{msg.text}</p>}
-            <Button onClick={handleSave} disabled={saving} className="ml-auto bg-[#390d58] hover:bg-[#4a1170] text-white gap-2">
+            <Button onClick={handleSave} disabled={saving || validation.length > 0} className="ml-auto bg-[#390d58] hover:bg-[#4a1170] text-white gap-2">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               Save
             </Button>
@@ -118,6 +169,44 @@ export function SmtpTool() {
           </div>
         </CardContent>
       </Card>
+
+      {data.mail_log && data.mail_log.length > 0 && (
+        <Card className="border-[#390d58]/20 overflow-hidden">
+          <div className="h-1 bg-gradient-to-r from-[#390d58] to-[#5a1a8a]" />
+          <CardHeader>
+            <CardTitle className="text-lg text-[#390d58]">Mail Delivery Log</CardTitle>
+            <CardDescription>Recent outgoing emails routed through Beacon SMTP. Last {data.mail_log.length} entries.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="rounded-xl border border-[#390d58]/10 overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-[#390d58]/5 hover:bg-[#390d58]/5">
+                    <TableHead className="font-semibold text-[#390d58]">Status</TableHead>
+                    <TableHead className="font-semibold text-[#390d58]">To</TableHead>
+                    <TableHead className="font-semibold text-[#390d58]">Subject</TableHead>
+                    <TableHead className="font-semibold text-[#390d58]">Sent</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.mail_log.map((entry, idx) => (
+                    <TableRow key={idx}>
+                      <TableCell>
+                        <Badge variant="outline" className={entry.ok ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-red-300 bg-red-50 text-red-700'}>
+                          {entry.ok ? 'Sent' : 'Failed'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-sm">{entry.to}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{entry.subject}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{entry.sent_at}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }

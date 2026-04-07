@@ -23,10 +23,10 @@ final class LoginBrandingHandler
     {
         $settings = (array) get_option(LoginBrandingEnum::OPTION_SETTINGS, []);
 
-        $logoUrl  = esc_url((string) ($settings['logo_url'] ?? ''));
-        $bgColor  = esc_attr((string) ($settings['bg_color'] ?? ''));
-        $bgImage  = esc_url((string) ($settings['bg_image_url'] ?? ''));
-        $customCss = wp_strip_all_tags((string) ($settings['custom_css'] ?? ''));
+        $logoUrl   = esc_url((string) ($settings['logo_url'] ?? ''));
+        $bgColor   = esc_attr((string) ($settings['bg_color'] ?? ''));
+        $bgImage   = esc_url((string) ($settings['bg_image_url'] ?? ''));
+        $customCss = (string) ($settings['custom_css'] ?? '');
 
         echo '<style>';
 
@@ -51,11 +51,17 @@ final class LoginBrandingHandler
 
     public function headerUrl(): string
     {
-        return home_url('/');
+        $settings = (array) get_option(LoginBrandingEnum::OPTION_SETTINGS, []);
+        $url = esc_url_raw((string) ($settings['logo_link_url'] ?? ''));
+
+        return $url !== '' ? $url : home_url('/');
     }
 
     public function headerText(): string
     {
-        return get_bloginfo('name');
+        $settings = (array) get_option(LoginBrandingEnum::OPTION_SETTINGS, []);
+        $text = sanitize_text_field((string) ($settings['logo_alt_text'] ?? ''));
+
+        return $text !== '' ? $text : get_bloginfo('name');
     }
 }

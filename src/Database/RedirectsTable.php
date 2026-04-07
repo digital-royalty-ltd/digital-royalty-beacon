@@ -8,7 +8,7 @@ final class RedirectsTable
 {
     public const TABLE_SLUG = 'dr_beacon_redirects';
     public const SCHEMA_VERSION_OPTION = 'dr_beacon_redirects_table_schema_version';
-    public const SCHEMA_VERSION = 1;
+    public const SCHEMA_VERSION = 3;
 
     public static function tableName(wpdb $wpdb): string
     {
@@ -54,7 +54,10 @@ final class RedirectsTable
                 source_path VARCHAR(2048) NOT NULL,
                 target_url VARCHAR(2048) NOT NULL,
                 redirect_type SMALLINT(3) UNSIGNED NOT NULL DEFAULT 301,
+                regex_enabled TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
                 hit_count BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+                last_accessed_at DATETIME NULL,
+                conditions TEXT NULL,
                 is_active TINYINT(1) UNSIGNED NOT NULL DEFAULT 1,
                 created_at DATETIME NOT NULL,
                 updated_at DATETIME NOT NULL,

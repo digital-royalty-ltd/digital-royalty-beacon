@@ -8,7 +8,7 @@ final class FourOhFourLogsTable
 {
     public const TABLE_SLUG            = 'dr_beacon_404_logs';
     public const SCHEMA_VERSION_OPTION = 'dr_beacon_404_logs_schema_version';
-    public const SCHEMA_VERSION        = 1;
+    public const SCHEMA_VERSION        = 2;
 
     public static function tableName(wpdb $wpdb): string
     {
@@ -48,6 +48,8 @@ final class FourOhFourLogsTable
                 id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
                 path VARCHAR(2048) NOT NULL,
                 referrer VARCHAR(2048) NULL,
+                user_agent VARCHAR(1024) NULL,
+                ip_hash VARCHAR(64) NULL,
                 hit_count BIGINT(20) UNSIGNED NOT NULL DEFAULT 1,
                 first_seen_at DATETIME NOT NULL,
                 last_seen_at DATETIME NOT NULL,

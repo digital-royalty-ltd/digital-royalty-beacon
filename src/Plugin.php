@@ -42,6 +42,7 @@ use DigitalRoyalty\Beacon\Systems\Workshop\AnnouncementBarHandler;
 use DigitalRoyalty\Beacon\Systems\Workshop\CodeInjectionHandler;
 use DigitalRoyalty\Beacon\Systems\Workshop\CustomAdminCssHandler;
 use DigitalRoyalty\Beacon\Systems\Workshop\CustomLoginUrlHandler;
+use DigitalRoyalty\Beacon\Systems\Workshop\DatabaseCleanupHandler;
 use DigitalRoyalty\Beacon\Systems\Workshop\DisableCommentsHandler;
 use DigitalRoyalty\Beacon\Systems\Workshop\DisableFileEditingHandler;
 use DigitalRoyalty\Beacon\Systems\Workshop\DisableXmlRpcHandler;
@@ -53,6 +54,9 @@ use DigitalRoyalty\Beacon\Systems\Workshop\SanitiseFilenamesHandler;
 use DigitalRoyalty\Beacon\Systems\Workshop\SmtpHandler;
 use DigitalRoyalty\Beacon\Systems\Workshop\SvgSupportHandler;
 use DigitalRoyalty\Beacon\Systems\Workshop\UserSwitcherHandler;
+use DigitalRoyalty\Beacon\Systems\Workshop\PostTypeSwitcherIntegration;
+use DigitalRoyalty\Beacon\Systems\Workshop\ClonePostIntegration;
+use DigitalRoyalty\Beacon\Systems\Workshop\MediaReplaceIntegration;
 use DigitalRoyalty\Beacon\Systems\Api\PublicApiDocsPage;
 use DigitalRoyalty\Beacon\Systems\Reports\ReportService;
 use DigitalRoyalty\Beacon\Systems\Updater\GitHubUpdater;
@@ -231,6 +235,7 @@ final class Plugin
         (new DisableXmlRpcHandler())->register();
         (new DisableFileEditingHandler())->register();
         (new SanitiseFilenamesHandler())->register();
+        (new DatabaseCleanupHandler())->register();
         (new CodeInjectionHandler())->register();
         (new CustomAdminCssHandler())->register();
         (new SmtpHandler())->register();
@@ -241,5 +246,8 @@ final class Plugin
         (new LoginBrandingHandler())->register();
         (new AnnouncementBarHandler())->register();
         (new UserSwitcherHandler())->register();
+        (new PostTypeSwitcherIntegration())->register();
+        (new ClonePostIntegration())->register();
+        (new MediaReplaceIntegration())->register();
     }
 }
