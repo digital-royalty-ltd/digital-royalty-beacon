@@ -171,8 +171,30 @@ final class DeferredRequestRunner
             return;
         }
 
-        // Error polling
+        // Error polling — check if the backend run has terminally failed
         if (!$response->ok) {
+            $backendStatus = $response->data['status'] ?? null;
+            $errorCode = $response->data['error']['code'] ?? null;
+
+            // The run itself has failed on the backend — no point retrying
+            if ($backendStatus === 'failed') {
+                $errorMessage = $response->data['error']['message'] ?? $response->message ?? 'Tool run failed.';
+                $this->repo->markFailed($id, "[{$errorCode}] {$errorMessage}");
+
+                $logger->info(
+                    LogScopeEnum::SYSTEM,
+                    LogEventEnum::DEFERRED_ROW_FAILED,
+                    'Deferred row failed (backend run terminal failure).',
+                    [
+                        'deferred_id' => $id,
+                        'error_code' => $errorCode,
+                        'message' => $errorMessage,
+                        'status_code' => $response->code,
+                    ]
+                );
+                return;
+            }
+
             $delay = $response->retryAfterSeconds ?? 30;
             $this->repo->reschedule($id, $delay, $response->message ?? 'Deferred poll failed.');
 

@@ -48,9 +48,12 @@ define('DR_BEACON_DIR', __DIR__);
 
 /**
  * Base URL for Beacon API.
- * Can be filtered if needed.
+ * Override in wp-config.php for local development:
+ *   define('DR_BEACON_API_BASE', 'http://localhost:8000/api');
  */
-define('DR_BEACON_API_BASE', 'https://app.digitalroyalty.co.uk/api');
+if (!defined('DR_BEACON_API_BASE')) {
+    define('DR_BEACON_API_BASE', 'https://app.digitalroyalty.co.uk/api');
+}
 
 /**
  * API namespace and version used for Beacon endpoints.

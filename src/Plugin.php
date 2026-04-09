@@ -91,6 +91,7 @@ final class Plugin
         $this->ensureSchema();
 
         $this->registerServices();
+        $this->registerHeartbeat();
         $this->registerUpdater();
         $this->registerAdminActions();
         $this->registerAdminUi();
@@ -103,11 +104,12 @@ final class Plugin
     public static function activate(): void
     {
         self::installTables();
+        \DigitalRoyalty\Beacon\Systems\Heartbeat\HeartbeatScheduler::onActivation();
     }
 
     public static function deactivate(): void
     {
-        // Later: unschedule cron, release locks, etc.
+        \DigitalRoyalty\Beacon\Systems\Heartbeat\HeartbeatScheduler::onDeactivation();
     }
 
     private function ensureSchema(): void
@@ -134,6 +136,11 @@ final class Plugin
     {
         (new ReportService())->register();
         (new PublicApiDocsPage())->register();
+    }
+
+    private function registerHeartbeat(): void
+    {
+        (new \DigitalRoyalty\Beacon\Systems\Heartbeat\HeartbeatScheduler())->register();
     }
 
     private function registerUpdater(): void
@@ -199,6 +206,11 @@ final class Plugin
         $router->register(
             DeferredRequestKeyEnum::CONTENT_GENERATOR_GENERATE,
             new ContentGeneratorDraftHandler()
+        );
+
+        $router->register(
+            DeferredRequestKeyEnum::CONTENT_FROM_SAMPLE,
+            new ContentGeneratorDraftHandler() // Same output shape (Article artifact → WP draft)
         );
 
         $router->register(

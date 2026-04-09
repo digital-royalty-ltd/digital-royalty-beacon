@@ -25,7 +25,7 @@ import { api } from '@/lib/api'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type LogScope = 'reports' | 'api' | 'system' | 'admin' | 'all'
+type LogScope = 'reports' | 'api' | 'system' | 'admin' | 'webhook' | 'all'
 
 interface LogEntry {
   id:         string
@@ -34,6 +34,7 @@ interface LogEntry {
   event:      string
   message:    string
   level:      string
+  context:    string | null
 }
 
 interface DebugInfo {
@@ -81,6 +82,7 @@ const scopeColors: Record<string, string> = {
   api:     'bg-emerald-500/10 text-emerald-600 border-emerald-500/20',
   system:  'bg-amber-500/10 text-amber-600 border-amber-500/20',
   admin:   'bg-blue-500/10 text-blue-600 border-blue-500/20',
+  webhook: 'bg-orange-500/10 text-orange-600 border-orange-500/20',
 }
 
 const deferredStatusColors: Record<string, string> = {
@@ -162,6 +164,7 @@ export function Debug() {
   const [loadingScheduler, setLoadingScheduler] = useState(true)
 
   const [resetting,        setResetting]        = useState<string | null>(null)
+  const [sendingHeartbeat, setSendingHeartbeat] = useState(false)
 
   // ── Fetch functions ──────────────────────────────────────────────────────
 
@@ -249,6 +252,18 @@ export function Debug() {
     }
   }
 
+  const handleSendHeartbeat = async () => {
+    setSendingHeartbeat(true)
+    try {
+      await api.post('/debug/send-heartbeat', {})
+      api.get<DebugInfo>('/debug').then(setDebugInfo).catch(() => null)
+    } catch {
+      alert('Heartbeat failed — check the log viewer below.')
+    } finally {
+      setSendingHeartbeat(false)
+    }
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -292,6 +307,20 @@ export function Debug() {
                 </p>
               </div>
             </div>
+          </div>
+          <div className="mt-4">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 border-[#390d58]/20 text-[#390d58]"
+              onClick={handleSendHeartbeat}
+              disabled={sendingHeartbeat}
+            >
+              {sendingHeartbeat
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : <Activity className="h-4 w-4" />}
+              Send Heartbeat Now
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -486,6 +515,7 @@ export function Debug() {
                   <SelectItem value="all">All Scopes</SelectItem>
                   <SelectItem value="reports">Reports</SelectItem>
                   <SelectItem value="api">API</SelectItem>
+                  <SelectItem value="webhook">Webhooks</SelectItem>
                   <SelectItem value="system">System</SelectItem>
                   <SelectItem value="admin">Admin</SelectItem>
                 </SelectContent>
@@ -529,22 +559,32 @@ export function Debug() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  logs.map((log, index) => (
-                    <TableRow
-                      key={log.id}
-                      className={`font-mono text-sm ${index % 2 === 0 ? 'bg-white' : 'bg-[#390d58]/[0.02]'}`}
-                    >
-                      <TableCell className="text-muted-foreground">{log.created_at}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline"
-                          className={`text-xs uppercase ${scopeColors[log.scope] ?? 'bg-muted text-muted-foreground'}`}>
-                          {log.scope}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-[#390d58] font-medium">{log.event}</TableCell>
-                      <TableCell className="text-foreground/80">{log.message}</TableCell>
-                    </TableRow>
-                  ))
+                  logs.map((log, index) => {
+                    const ctx = log.context ? (() => { try { return JSON.parse(log.context) } catch { return null } })() : null
+                    return (
+                      <TableRow
+                        key={log.id}
+                        className={`font-mono text-sm ${index % 2 === 0 ? 'bg-white' : 'bg-[#390d58]/[0.02]'}`}
+                      >
+                        <TableCell className="text-muted-foreground">{log.created_at}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline"
+                            className={`text-xs uppercase ${scopeColors[log.scope] ?? 'bg-muted text-muted-foreground'}`}>
+                            {log.scope}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-[#390d58] font-medium">{log.event}</TableCell>
+                        <TableCell className="text-foreground/80">
+                          <div>{log.message}</div>
+                          {ctx && (
+                            <pre className="mt-1 max-h-24 overflow-auto rounded bg-muted/50 px-2 py-1 text-[11px] text-muted-foreground">
+                              {JSON.stringify(ctx, null, 2)}
+                            </pre>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })
                 )}
               </TableBody>
             </Table>

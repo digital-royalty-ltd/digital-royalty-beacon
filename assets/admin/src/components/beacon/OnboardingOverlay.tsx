@@ -34,7 +34,7 @@ const SCREENS: Record<string, ScreenConfig> = {
     gradient:    'from-[#390d58] to-violet-600',
   },
   campaigns: {
-    title:       'Digital Royalty\'s BNoplaybooks, executed by AI',
+    title:       'Digital Royalty\'s playbooks, executed by AI',
     description: 'Every campaign strategy in Beacon is rooted in what we\'ve proven works over years as a full-service agency. You choose the approach — AI handles the execution, guided by our methodology every step of the way.',
     icon:        <Target className="h-14 w-14 text-white/80" />,
     gradient:    'from-[#2d0a47] to-[#390d58]',

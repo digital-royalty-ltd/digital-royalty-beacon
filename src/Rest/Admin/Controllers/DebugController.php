@@ -42,6 +42,12 @@ final class DebugController
             'callback'            => [$this, 'handleReset'],
             'permission_callback' => fn () => current_user_can('manage_options'),
         ]);
+
+        register_rest_route('beacon/v1', '/admin/debug/send-heartbeat', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'handleSendHeartbeat'],
+            'permission_callback' => fn () => current_user_can('manage_options'),
+        ]);
     }
 
     public function handle(WP_REST_Request $request): WP_REST_Response
@@ -123,6 +129,38 @@ final class DebugController
         }
 
         return new WP_REST_Response(['ok' => true, 'action' => $action], 200);
+    }
+
+    public function handleSendHeartbeat(WP_REST_Request $request): WP_REST_Response
+    {
+        try {
+            $client = \DigitalRoyalty\Beacon\Services\Services::apiClient();
+
+            $response = $client->heartbeat([
+                'status' => 'active',
+                'plugin_version' => defined('DR_BEACON_VERSION') ? DR_BEACON_VERSION : '0.0.0',
+                'wp_version' => get_bloginfo('version'),
+                'php_version' => PHP_VERSION,
+                'site_url' => get_site_url(),
+                'webhook_url' => rest_url('dr-beacon/v1/webhook'),
+                'webhook_secret' => get_option('dr_beacon_webhook_secret', ''),
+            ]);
+
+            if (!$response->ok) {
+                return new WP_REST_Response([
+                    'ok' => false,
+                    'message' => $response->message ?? 'Heartbeat rejected by API.',
+                    'code' => $response->code,
+                ], 200);
+            }
+
+            return new WP_REST_Response(['ok' => true, 'message' => 'Heartbeat sent and acknowledged by API.'], 200);
+        } catch (\Throwable $e) {
+            return new WP_REST_Response([
+                'ok' => false,
+                'message' => 'Heartbeat failed: ' . $e->getMessage(),
+            ], 200);
+        }
     }
 
     private function clearReports(): void

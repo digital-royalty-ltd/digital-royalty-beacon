@@ -2,6 +2,7 @@
 
 namespace DigitalRoyalty\Beacon\Systems\Automations;
 
+use DigitalRoyalty\Beacon\Systems\Automations\Automations\ContentFromSampleAutomation;
 use DigitalRoyalty\Beacon\Systems\Automations\Automations\ContentGeneratorAutomation;
 use DigitalRoyalty\Beacon\Systems\Automations\Automations\GapAnalysisAutomation;
 
@@ -14,6 +15,7 @@ final class AutomationRegistry
     {
         return [
             new ContentGeneratorAutomation(),
+            new ContentFromSampleAutomation(),
             new GapAnalysisAutomation(),
         ];
     }

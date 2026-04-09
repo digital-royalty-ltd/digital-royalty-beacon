@@ -16,6 +16,7 @@ use DigitalRoyalty\Beacon\Rest\Admin\Controllers\BootstrapController;
 use DigitalRoyalty\Beacon\Rest\Admin\Controllers\CampaignsController;
 use DigitalRoyalty\Beacon\Rest\Admin\Controllers\ConfigController;
 use DigitalRoyalty\Beacon\Rest\Admin\Controllers\ConnectionsController;
+use DigitalRoyalty\Beacon\Rest\Admin\Controllers\ContentFromSampleController;
 use DigitalRoyalty\Beacon\Rest\Admin\Controllers\ContentGeneratorController;
 use DigitalRoyalty\Beacon\Rest\Admin\Controllers\DebugController;
 use DigitalRoyalty\Beacon\Rest\Admin\Controllers\LogsController;
@@ -55,6 +56,7 @@ final class AdminRestService
             (new ConfigController())->registerRoutes();
             (new ConnectionsController())->registerRoutes();
             (new ContentGeneratorController())->registerRoutes();
+            (new ContentFromSampleController())->registerRoutes();
             (new LogsController($this->logsRepo))->registerRoutes();
             (new OnboardingController())->registerRoutes();
             (new UpdateChannelController())->registerRoutes();

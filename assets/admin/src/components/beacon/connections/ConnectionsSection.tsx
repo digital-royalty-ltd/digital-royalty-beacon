@@ -37,17 +37,19 @@ type ActionState = 'idle' | 'connecting' | 'disconnecting'
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function ConnectionsSection() {
+  const hasApiKey = window.BeaconData?.hasApiKey ?? false
   const [providers,  setProviders]  = useState<ProviderStatus[]>([])
   const [loading,    setLoading]    = useState(true)
   const [actionFor,  setActionFor]  = useState<Record<string, ActionState>>({})
   const [errors,     setErrors]     = useState<Record<string, string>>({})
 
   useEffect(() => {
+    if (!hasApiKey) { setLoading(false); return }
     api.get<{ providers: ProviderStatus[] }>('/connections')
       .then(res => setProviders(res.providers))
       .catch(() => {/* silently leave empty */})
       .finally(() => setLoading(false))
-  }, [])
+  }, [hasApiKey])
 
   const setAction = (key: string, state: ActionState) =>
     setActionFor(prev => ({ ...prev, [key]: state }))
@@ -100,7 +102,13 @@ export function ConnectionsSection() {
       </CardHeader>
 
       <CardContent>
-        {loading ? (
+        {!hasApiKey ? (
+          <div className="rounded-xl border border-[#390d58]/10 bg-[#390d58]/[0.02] p-6 text-center">
+            <p className="text-sm text-muted-foreground">
+              Enter your Beacon API key above to connect third-party platforms to your account.
+            </p>
+          </div>
+        ) : loading ? (
           <div className="flex items-center justify-center py-10 text-muted-foreground gap-2">
             <Loader2 className="h-4 w-4 animate-spin" />
             <span className="text-sm">Loading connections…</span>

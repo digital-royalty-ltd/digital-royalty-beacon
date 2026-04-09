@@ -5,6 +5,7 @@ import { api } from '@/lib/api'
 import { AutomationCard, AutomationListItem } from '@/components/beacon/automations/AutomationCard'
 import { GapAnalysisResults } from '@/components/beacon/automations/GapAnalysisResults'
 import { ContentGeneratorTool } from '@/components/beacon/ContentGeneratorTool'
+import { ContentFromSampleTool } from '@/components/beacon/ContentFromSampleTool'
 import { OnboardingOverlay } from '@/components/beacon/OnboardingOverlay'
 import { PremiumGate } from '@/components/beacon/PremiumGate'
 
@@ -47,8 +48,13 @@ export function AutomationsPage() {
   }, [])
 
   // --- Content Generator tool view ---
-  if (view.type === 'tool' && view.key === 'content-generator') {
-    return <ContentGeneratorTool onBack={() => setView({ type: 'list' })} />  // no overlay in tool sub-views
+  if (view.type === 'tool' && view.key === 'content_generator') {
+    return <ContentGeneratorTool onBack={() => setView({ type: 'list' })} />
+  }
+
+  // --- Content From Sample tool view ---
+  if (view.type === 'tool' && view.key === 'content_from_sample') {
+    return <ContentFromSampleTool onBack={() => setView({ type: 'list' })} />
   }
 
   // --- Gap Analysis results view ---

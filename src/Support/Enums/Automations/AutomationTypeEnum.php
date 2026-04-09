@@ -4,6 +4,7 @@ namespace DigitalRoyalty\Beacon\Support\Enums\Automations;
 
 final class AutomationTypeEnum
 {
-    public const CONTENT_GENERATOR = 'content_generator';
-    public const GAP_ANALYSIS      = 'gap_analysis';
+    public const CONTENT_GENERATOR    = 'content_generator';
+    public const CONTENT_FROM_SAMPLE = 'content_from_sample';
+    public const GAP_ANALYSIS        = 'gap_analysis';
 }

@@ -63,6 +63,22 @@ final class ApiClient
     }
 
     /**
+     * Send a heartbeat/lifecycle signal to the backend.
+     *
+     * @param array{status: string, plugin_version?: string, wp_version?: string, php_version?: string, site_url?: string, webhook_url?: string, webhook_secret?: string} $payload
+     */
+    public function heartbeat(array $payload): ApiResponse
+    {
+        return $this->request(
+            method: 'POST',
+            path: 'heartbeat',
+            payload: $payload,
+            includeClientMeta: false,
+            requireAuth: true
+        );
+    }
+
+    /**
      * Submit a report envelope to the backend.
      *
      * @param array<string,mixed> $envelope
@@ -95,6 +111,26 @@ final class ApiClient
             includeClientMeta: true,
             requireAuth: true,
             requestKey: DeferredRequestKeyEnum::CONTENT_GENERATOR_GENERATE
+        );
+    }
+
+    /**
+     * Request content generation from a sample URL or page content.
+     *
+     * Triggers a two-step AI chain: sample analysis → content rewrite.
+     * Returns 202 if accepted for async processing.
+     *
+     * @param array<string,mixed> $payload
+     */
+    public function contentFromSample(array $payload): ApiResponse
+    {
+        return $this->request(
+            method: 'POST',
+            path: 'tools/content-from-sample',
+            payload: $payload,
+            includeClientMeta: true,
+            requireAuth: true,
+            requestKey: DeferredRequestKeyEnum::CONTENT_FROM_SAMPLE
         );
     }
 
