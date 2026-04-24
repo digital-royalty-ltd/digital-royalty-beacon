@@ -30,17 +30,6 @@ final class DeferredRequestRunner
     {
         $logger = Services::logger();
 
-        $logger->info(
-            LogScopeEnum::SYSTEM,
-            LogEventEnum::DEFERRED_RUN_START,
-            'Deferred runner fired.',
-            [
-                'hook' => self::CRON_HOOK,
-                'now_utc' => gmdate('Y-m-d H:i:s') . ' UTC',
-                'doing_cron' => (defined('DOING_CRON') && DOING_CRON) ? 'yes' : 'no',
-            ]
-        );
-
         try {
             $rows = $this->repo->due(self::BATCH_SIZE);
         } catch (Throwable $e) {
@@ -58,26 +47,20 @@ final class DeferredRequestRunner
             return;
         }
 
-        $logger->info(
-            LogScopeEnum::SYSTEM,
-            LogEventEnum::DEFERRED_RUN_DUE_COUNT,
-            'Deferred due rows fetched.',
-            [
-                'count' => is_array($rows) ? count($rows) : 0,
-            ]
-        );
-
+        // Nothing to do — only reschedule if there are pending rows not yet due.
         if (!is_array($rows) || $rows === []) {
-            $this->scheduleNextIfNeeded();
-
-            $logger->info(
-                LogScopeEnum::SYSTEM,
-                LogEventEnum::DEFERRED_RUN_END,
-                'Deferred runner finished (no due rows).',
-                ['hook' => self::CRON_HOOK]
-            );
+            $this->scheduleNextIfPending();
             return;
         }
+
+        $logger->info(
+            LogScopeEnum::SYSTEM,
+            LogEventEnum::DEFERRED_RUN_START,
+            'Deferred runner processing.',
+            [
+                'count' => count($rows),
+            ]
+        );
 
         foreach ($rows as $row) {
             try {
@@ -274,6 +257,39 @@ final class DeferredRequestRunner
         );
     }
 
+    /**
+     * Only reschedule if there are pending rows with a future next_attempt_at.
+     * If the queue is truly empty, let the runner stop — it will be restarted
+     * when a new deferred request is enqueued by ApiClient.
+     */
+    private function scheduleNextIfPending(): void
+    {
+        $nextDue = null;
+
+        if (method_exists($this->repo, 'nextPendingAttemptTimestampUtc')) {
+            try {
+                $nextDue = $this->repo->nextPendingAttemptTimestampUtc();
+            } catch (Throwable $e) {
+                // Swallow — no pending work.
+            }
+        }
+
+        if ($nextDue === null) {
+            // No pending rows at all — don't reschedule.
+            return;
+        }
+
+        $target = max(time() + 5, (int) $nextDue);
+        $next   = wp_next_scheduled(self::CRON_HOOK);
+
+        if (!$next || $next > ($target + 10)) {
+            if ($next) {
+                wp_unschedule_event($next, self::CRON_HOOK);
+            }
+            wp_schedule_single_event($target, self::CRON_HOOK);
+        }
+    }
+
     private function scheduleNextIfNeeded(bool $forceSoon = false): void
     {
         $logger = Services::logger();
@@ -311,31 +327,7 @@ final class DeferredRequestRunner
 
             wp_schedule_single_event($target, self::CRON_HOOK);
 
-            $logger->info(
-                LogScopeEnum::SYSTEM,
-                LogEventEnum::DEFERRED_RUN_SCHEDULED,
-                'Deferred runner scheduled.',
-                [
-                    'hook' => self::CRON_HOOK,
-                    'target_utc' => gmdate('Y-m-d H:i:s', (int) $target) . ' UTC',
-                    'prev_next_utc' => $next ? (gmdate('Y-m-d H:i:s', (int) $next) . ' UTC') : null,
-                    'next_due_utc' => $nextDue ? (gmdate('Y-m-d H:i:s', (int) $nextDue) . ' UTC') : null,
-                    'force_soon' => $forceSoon ? 'yes' : 'no',
-                ]
-            );
             return;
         }
-
-        $logger->info(
-            LogScopeEnum::SYSTEM,
-            LogEventEnum::DEFERRED_RUN_ALREADY_SCHEDULED,
-            'Deferred runner already scheduled soon enough.',
-            [
-                'hook' => self::CRON_HOOK,
-                'next_utc' => $next ? (gmdate('Y-m-d H:i:s', (int) $next) . ' UTC') : null,
-                'target_utc' => gmdate('Y-m-d H:i:s', (int) $target) . ' UTC',
-                'force_soon' => $forceSoon ? 'yes' : 'no',
-            ]
-        );
     }
 }

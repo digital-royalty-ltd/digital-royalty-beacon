@@ -7,6 +7,7 @@ use DigitalRoyalty\Beacon\Services\Services;
 use DigitalRoyalty\Beacon\Support\Enums\Reports\ReportTypeEnum;
 use DigitalRoyalty\Beacon\Systems\Reports\ReportManager;
 use DigitalRoyalty\Beacon\Systems\Reports\ReportRegistry;
+use DigitalRoyalty\Beacon\Systems\Reports\ReportService;
 use WP_REST_Request;
 use WP_REST_Response;
 
@@ -41,6 +42,12 @@ final class ReportsController
             'callback'            => [$this, 'handleResubmit'],
             'permission_callback' => fn () => current_user_can('manage_options'),
         ]);
+
+        register_rest_route('beacon/v1', '/admin/reports/(?P<type>[a-z][a-z0-9_]*)/regenerate', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'handleRegenerate'],
+            'permission_callback' => fn () => current_user_can('manage_options'),
+        ]);
     }
 
     public function handleRun(WP_REST_Request $request): WP_REST_Response
@@ -55,8 +62,10 @@ final class ReportsController
     {
         $rows = $this->reportsRepo->allLatest();
 
-        $items = array_map(function (array $row): array {
-            return [
+        // Index existing reports by type.
+        $existing = [];
+        foreach ($rows as $row) {
+            $existing[$row['type']] = [
                 'type'         => $row['type'],
                 'label'        => ReportTypeEnum::label($row['type']),
                 'version'      => (int) $row['version'],
@@ -64,9 +73,25 @@ final class ReportsController
                 'generated_at' => $row['generated_at'] ?? null,
                 'submitted_at' => $row['submitted_at'] ?? null,
             ];
-        }, $rows);
+        }
 
-        return new WP_REST_Response($items, 200);
+        // Include all registered report types so new ones appear immediately.
+        $registry = new ReportRegistry();
+        foreach ($registry->required() as $generator) {
+            $type = $generator->type();
+            if (!isset($existing[$type])) {
+                $existing[$type] = [
+                    'type'         => $type,
+                    'label'        => ReportTypeEnum::label($type),
+                    'version'      => $generator->version(),
+                    'status'       => 'not_generated',
+                    'generated_at' => null,
+                    'submitted_at' => null,
+                ];
+            }
+        }
+
+        return new WP_REST_Response(array_values($existing), 200);
     }
 
     public function handleGet(WP_REST_Request $request): WP_REST_Response
@@ -80,7 +105,7 @@ final class ReportsController
 
         $payload = !empty($row['payload']) ? json_decode($row['payload'], true) : null;
 
-        return new WP_REST_Response([
+        $response = [
             'type'         => $row['type'],
             'label'        => ReportTypeEnum::label($row['type']),
             'version'      => (int) $row['version'],
@@ -88,7 +113,79 @@ final class ReportsController
             'generated_at' => $row['generated_at'] ?? null,
             'submitted_at' => $row['submitted_at'] ?? null,
             'payload'      => $payload,
-        ], 200);
+        ];
+
+        // Attach local routing maps for reports that maintain them.
+        $localMaps = $this->getLocalMaps($type);
+        if (!empty($localMaps)) {
+            $response['local_maps'] = $localMaps;
+        }
+
+        return new WP_REST_Response($response, 200);
+    }
+
+    /**
+     * Return local WP routing maps associated with a report type.
+     *
+     * @return array<string, mixed>
+     */
+    private function getLocalMaps(string $type): array
+    {
+        $mapsByType = [
+            'website_content_areas' => [
+                'content_area_map' => 'dr_beacon_content_area_map',
+            ],
+            'website_profile' => [
+                'key_pages_map' => 'dr_beacon_key_pages_map',
+            ],
+        ];
+
+        $optionKeys = $mapsByType[$type] ?? [];
+        $maps = [];
+
+        foreach ($optionKeys as $label => $optionName) {
+            $value = get_option($optionName, []);
+            if (!empty($value) && is_array($value)) {
+                $maps[$label] = $value;
+            }
+        }
+
+        return $maps;
+    }
+
+    public function handleRegenerate(WP_REST_Request $request): WP_REST_Response
+    {
+        $type = (string) $request->get_param('type');
+
+        $registry  = new ReportRegistry();
+        $generator = null;
+
+        foreach ($registry->required() as $g) {
+            if ($g->type() === $type) {
+                $generator = $g;
+                break;
+            }
+        }
+
+        if (!$generator) {
+            return new WP_REST_Response(['error' => 'Unknown report type.'], 404);
+        }
+
+        // Mark as pending and enqueue via the standalone hook (no chaining).
+        $this->reportsRepo->upsertPending($type, $generator->version());
+
+        if (function_exists('as_enqueue_async_action')) {
+            as_enqueue_async_action(
+                ReportService::ACTION_REGENERATE_REPORT,
+                [$type, $generator->version()],
+                'dr-beacon'
+            );
+        }
+
+        return new WP_REST_Response([
+            'ok'      => true,
+            'message' => ReportTypeEnum::label($type) . ' report queued for regeneration.',
+        ], 202);
     }
 
     public function handleResubmit(WP_REST_Request $request): WP_REST_Response

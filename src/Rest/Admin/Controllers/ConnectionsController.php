@@ -65,11 +65,6 @@ final class ConnectionsController
         $state       = wp_generate_password(32, false);
         $callbackUrl = rest_url('beacon/v1/oauth/callback');
 
-        update_option(ConfigurationEnum::OPTION_STATE, [
-            'state'    => $state,
-            'provider' => $provider,
-        ], false);
-
         $res = Services::apiClient()->initiateOAuth($provider, $callbackUrl, $state);
 
         if (!$res->isOk()) {
@@ -81,6 +76,20 @@ final class ConnectionsController
         if ($url === '') {
             return new WP_REST_Response(['message' => 'No redirect URL returned by Beacon.'], 502);
         }
+
+        // Store state + code_verifier (PKCE providers return a verifier that must be
+        // forwarded during the token exchange).
+        $stateData = [
+            'state'    => $state,
+            'provider' => $provider,
+        ];
+
+        $codeVerifier = $res->data['code_verifier'] ?? null;
+        if (is_string($codeVerifier) && $codeVerifier !== '') {
+            $stateData['code_verifier'] = $codeVerifier;
+        }
+
+        update_option(ConfigurationEnum::OPTION_STATE, $stateData, false);
 
         return new WP_REST_Response(['url' => $url], 200);
     }

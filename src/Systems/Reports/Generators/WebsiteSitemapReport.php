@@ -8,16 +8,11 @@ use DigitalRoyalty\Beacon\Systems\Reports\ReportGeneratorInterface;
 /**
  * Generates a neutral, agnostic snapshot of the site's URL and content structure.
  *
- * Unlike WebsiteContentAreasReport (which uses AI to identify intent and topics),
- * this report is a plain structural inventory: what pages exist, how they are
- * hierarchically arranged, and what collection types (non-page post types) the
- * site contains. No AI helper call is made.
- *
- * Used by Gap Analysis to understand what content the site actually has, so the
- * AI can compare it against declared content areas and surface opportunities.
- *
- * This report will grow over time (e.g. traffic stats, SEO metrics) without
- * affecting WebsiteContentAreasReport's domain.
+ * Includes a full page tree and, for each collection (post type), the most
+ * recent published items with title, URL, and date. This serves as a
+ * lightweight content inventory that AI tools can slice into for:
+ * - Deduplication (don't write about something that already exists)
+ * - Internal linking (reference other pages/posts naturally)
  */
 final class WebsiteSitemapReport implements ReportGeneratorInterface
 {
@@ -28,21 +23,19 @@ final class WebsiteSitemapReport implements ReportGeneratorInterface
 
     public function version(): int
     {
-        return 1;
+        return 2;
     }
 
     public function generate(): array
     {
         $pages = $this->fetchAllPublishedPages();
-
-        $collections   = $this->buildCollections();
-        $totalItems    = array_sum(array_column($collections, 'item_count'));
+        $collections = $this->buildCollections();
 
         return [
-            'pages'                => $this->buildPageTree($pages, 0, 0),
-            'collections'          => $collections,
-            'total_pages'          => count($pages),
-            'total_collection_items' => $totalItems,
+            'pages'                  => $this->buildPageTree($pages, 0, 0),
+            'collections'            => $collections,
+            'total_pages'            => count($pages),
+            'total_collection_items' => array_sum(array_column($collections, 'item_count')),
         ];
     }
 
@@ -50,9 +43,7 @@ final class WebsiteSitemapReport implements ReportGeneratorInterface
     // Page tree
     // -----------------------------------------------------------------------
 
-    /**
-     * @return \WP_Post[]
-     */
+    /** @return \WP_Post[] */
     private function fetchAllPublishedPages(): array
     {
         $results = get_posts([
@@ -67,8 +58,6 @@ final class WebsiteSitemapReport implements ReportGeneratorInterface
     }
 
     /**
-     * Recursively build a neutral page tree.
-     *
      * @param \WP_Post[] $pages
      * @return array<int, array<string,mixed>>
      */
@@ -86,6 +75,7 @@ final class WebsiteSitemapReport implements ReportGeneratorInterface
             $tree[] = [
                 'slug'     => $page->post_name,
                 'title'    => $page->post_title,
+                'url'      => (string) get_permalink($page),
                 'depth'    => $depth,
                 'children' => $children,
             ];
@@ -95,20 +85,35 @@ final class WebsiteSitemapReport implements ReportGeneratorInterface
     }
 
     // -----------------------------------------------------------------------
-    // Collections (non-page post types)
+    // Collections (non-page post types) with recent items
     // -----------------------------------------------------------------------
 
-    /**
-     * @return array<int, array{key: string, label: string, item_count: int}>
-     */
+    /** @return array<int, array<string, mixed>> */
     private function buildCollections(): array
     {
         $collections = [];
 
-        // Custom (non-built-in) public post types.
+        // Standard blog posts
+        $postCounts = wp_count_posts('post');
+        $postPublished = (int) ($postCounts->publish ?? 0);
+
+        if ($postPublished > 0) {
+            $collections[] = [
+                'key'        => 'post',
+                'label'      => 'Blog Posts',
+                'item_count' => $postPublished,
+                'items'      => $this->recentItems('post'),
+            ];
+        }
+
+        // Custom public post types
         $postTypes = get_post_types(['public' => true, '_builtin' => false], 'objects');
 
         foreach ($postTypes as $pt) {
+            if ($pt->name === 'attachment') {
+                continue;
+            }
+
             $counts    = wp_count_posts($pt->name);
             $published = (int) ($counts->publish ?? 0);
 
@@ -117,24 +122,43 @@ final class WebsiteSitemapReport implements ReportGeneratorInterface
             }
 
             $collections[] = [
-                'key'        => sanitize_title($pt->label),
+                'key'        => $pt->name,
                 'label'      => $pt->label,
                 'item_count' => $published,
+                'items'      => $this->recentItems($pt->name),
             ];
         }
 
-        // Standard blog posts — include only if the site publishes them.
-        $postCounts = wp_count_posts('post');
-        $postPublished = (int) ($postCounts->publish ?? 0);
+        return $collections;
+    }
 
-        if ($postPublished > 0) {
-            array_unshift($collections, [
-                'key'        => 'blog-posts',
-                'label'      => 'Blog Posts',
-                'item_count' => $postPublished,
-            ]);
+    /**
+     * Fetch all published items for a post type.
+     * Only stores title, URL, and date — lightweight enough for full inventories.
+     *
+     * @return array<int, array{title: string, url: string, date: string|null}>
+     */
+    private function recentItems(string $postType): array
+    {
+        /** @var \WP_Post[] $posts */
+        $posts = get_posts([
+            'post_type'      => $postType,
+            'post_status'    => 'publish',
+            'posts_per_page' => -1,
+            'orderby'        => 'date',
+            'order'          => 'DESC',
+            'no_found_rows'  => true,
+        ]);
+
+        $items = [];
+        foreach ($posts as $post) {
+            $items[] = [
+                'title' => $post->post_title,
+                'url'   => (string) get_permalink($post),
+                'date'  => $post->post_date ? date('Y-m-d', strtotime($post->post_date)) : null,
+            ];
         }
 
-        return $collections;
+        return $items;
     }
 }

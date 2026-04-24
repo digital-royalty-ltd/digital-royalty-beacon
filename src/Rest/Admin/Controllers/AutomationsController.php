@@ -74,14 +74,16 @@ final class AutomationsController
             $latestRow    = $deferredKey ? $this->deferredRepo->getLatestByKey($deferredKey) : null;
 
             $automations[] = [
-                'key'          => $automation->key(),
-                'label'        => $automation->label(),
-                'description'  => $automation->description(),
-                'deferred_key' => $deferredKey,
-                'dependencies' => $depCheck['items'],
-                'deps_met'     => $depCheck['met'],
-                'status'       => $this->resolveStatus($automation->deferredKey(), $depCheck['met'], $latestRow),
-                'latest_run'   => $latestRow ? $this->formatLatestRun($latestRow) : null,
+                'key'             => $automation->key(),
+                'label'           => $automation->label(),
+                'description'     => $automation->description(),
+                'deferred_key'    => $deferredKey,
+                'categories'      => $automation->categories(),
+                'supported_modes' => $automation->supportedModes(),
+                'dependencies'    => $depCheck['items'],
+                'deps_met'        => $depCheck['met'],
+                'status'          => $this->resolveStatus($automation->deferredKey(), $depCheck['met'], $latestRow),
+                'latest_run'      => $latestRow ? $this->formatLatestRun($latestRow) : null,
             ];
         }
 

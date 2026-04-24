@@ -5,6 +5,7 @@ namespace DigitalRoyalty\Beacon\Rest\Admin\Controllers;
 use DigitalRoyalty\Beacon\Services\Services;
 use DigitalRoyalty\Beacon\Systems\Api\ApiClient;
 use DigitalRoyalty\Beacon\Systems\Reports\ReportManager;
+use DigitalRoyalty\Beacon\Systems\Reports\ReportService;
 use DigitalRoyalty\Beacon\Support\Enums\Admin\HomeViewOptionEnum;
 use DigitalRoyalty\Beacon\Support\Enums\Logging\LogEventEnum;
 use DigitalRoyalty\Beacon\Support\Enums\Logging\LogScopeEnum;
@@ -30,6 +31,12 @@ final class ConfigController
                 'callback'            => [$this, 'handleDisconnect'],
                 'permission_callback' => fn () => current_user_can('manage_options'),
             ],
+        ]);
+
+        register_rest_route('beacon/v1', '/admin/config/api-key/verify', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'handleVerify'],
+            'permission_callback' => fn () => current_user_can('manage_options'),
         ]);
     }
 
@@ -68,11 +75,42 @@ final class ConfigController
         ], 200);
     }
 
+    public function handleVerify(WP_REST_Request $request): WP_REST_Response
+    {
+        $apiKey = (string) get_option(HomeViewOptionEnum::API_KEY, '');
+
+        if ($apiKey === '') {
+            return new WP_REST_Response(['ok' => false, 'message' => 'No API key configured.'], 422);
+        }
+
+        $client = new ApiClient($apiKey);
+        $res    = $client->verifyApiKey();
+
+        if (!$res->isOk()) {
+            return new WP_REST_Response([
+                'ok'      => false,
+                'message' => $res->message ?? 'Connection failed.',
+            ], 422);
+        }
+
+        return new WP_REST_Response([
+            'ok'      => true,
+            'message' => 'Connection verified.',
+        ], 200);
+    }
+
     public function handleDisconnect(WP_REST_Request $request): WP_REST_Response
     {
         delete_option(HomeViewOptionEnum::API_KEY);
         delete_option(HomeViewOptionEnum::CONNECTED_AT);
         delete_option(ReportManager::OPTION_STATUS);
+
+        // Cancel all pending API-dependent actions
+        if (function_exists('as_unschedule_all_actions')) {
+            as_unschedule_all_actions(ReportManager::ACTION_RUN_NEXT, [], 'dr-beacon');
+            as_unschedule_all_actions(ReportManager::ACTION_RUN_REPORT, [], 'dr-beacon');
+            as_unschedule_all_actions(ReportService::ACTION_REGENERATE_REPORT, [], 'dr-beacon');
+        }
 
         Services::reset();
         Services::logger()->info(LogScopeEnum::ADMIN, LogEventEnum::DISCONNECTED, 'Disconnected.');

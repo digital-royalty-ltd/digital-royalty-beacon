@@ -11,8 +11,6 @@ final class CampaignAiEnum
     public const PULSE = 'pulse';
     public const ATLAS = 'atlas';
 
-    public const OPTION_SELECTED_AI  = 'dr_beacon_campaign_ai';
-    public const OPTION_ONBOARDING   = 'dr_beacon_campaign_onboarding';
 
     /** @return string[] */
     public static function all(): array

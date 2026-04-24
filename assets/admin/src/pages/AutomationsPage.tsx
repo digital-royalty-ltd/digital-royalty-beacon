@@ -2,10 +2,14 @@ import { useEffect, useState } from 'react'
 import { Loader2, Sparkles, RefreshCw, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
-import { AutomationCard, AutomationListItem } from '@/components/beacon/automations/AutomationCard'
+import { AutomationCard, AutomationListItem, AutomationCategory } from '@/components/beacon/automations/AutomationCard'
 import { GapAnalysisResults } from '@/components/beacon/automations/GapAnalysisResults'
 import { ContentGeneratorTool } from '@/components/beacon/ContentGeneratorTool'
 import { ContentFromSampleTool } from '@/components/beacon/ContentFromSampleTool'
+import { GenerateImageTool } from '@/components/beacon/GenerateImageTool'
+import { ContentEnrichmentTool } from '@/components/beacon/ContentEnrichmentTool'
+import { NewsArticleGeneratorTool } from '@/components/beacon/NewsArticleGeneratorTool'
+import { SocialShareTool } from '@/components/beacon/SocialShareTool'
 import { OnboardingOverlay } from '@/components/beacon/OnboardingOverlay'
 import { PremiumGate } from '@/components/beacon/PremiumGate'
 
@@ -33,6 +37,7 @@ export function AutomationsPage() {
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [activeFilters, setActiveFilters] = useState<AutomationCategory[]>([])
 
   const fetchAutomations = () => {
     setLoading(true)
@@ -55,6 +60,26 @@ export function AutomationsPage() {
   // --- Content From Sample tool view ---
   if (view.type === 'tool' && view.key === 'content_from_sample') {
     return <ContentFromSampleTool onBack={() => setView({ type: 'list' })} />
+  }
+
+  // --- Generate Image tool view ---
+  if (view.type === 'tool' && view.key === 'generate_image') {
+    return <GenerateImageTool onBack={() => setView({ type: 'list' })} />
+  }
+
+  // --- Content Image Enrichment tool view ---
+  if (view.type === 'tool' && view.key === 'content_image_enrichment') {
+    return <ContentEnrichmentTool onBack={() => setView({ type: 'list' })} />
+  }
+
+  // --- News Article Generator tool view ---
+  if (view.type === 'tool' && view.key === 'news_article_generator') {
+    return <NewsArticleGeneratorTool onBack={() => setView({ type: 'list' })} />
+  }
+
+  // --- Social Share tool view ---
+  if (view.type === 'tool' && view.key === 'social_share') {
+    return <SocialShareTool onBack={() => setView({ type: 'list' })} />
   }
 
   // --- Gap Analysis results view ---
@@ -130,6 +155,53 @@ export function AutomationsPage() {
         </div>
       </div>
 
+      {/* Category filters */}
+      {(() => {
+        const allCategories = Array.from(new Set(automations.flatMap(a => a.categories))) as AutomationCategory[]
+        if (allCategories.length <= 1) return null
+
+        const CATEGORY_STYLES: Record<AutomationCategory, { active: string; inactive: string }> = {
+          content: { active: 'bg-violet-600 text-white border-violet-600', inactive: 'border-violet-200 text-violet-700 hover:bg-violet-50' },
+          seo:     { active: 'bg-emerald-600 text-white border-emerald-600', inactive: 'border-emerald-200 text-emerald-700 hover:bg-emerald-50' },
+          ppc:     { active: 'bg-orange-500 text-white border-orange-500', inactive: 'border-orange-200 text-orange-700 hover:bg-orange-50' },
+          social:  { active: 'bg-sky-600 text-white border-sky-600', inactive: 'border-sky-200 text-sky-700 hover:bg-sky-50' },
+        }
+        const CATEGORY_LABELS: Record<AutomationCategory, string> = { content: 'Content', seo: 'SEO', ppc: 'PPC', social: 'Social' }
+
+        const toggleFilter = (cat: AutomationCategory) => {
+          setActiveFilters(prev =>
+            prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat]
+          )
+        }
+
+        return (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-muted-foreground mr-1">Filter:</span>
+            {allCategories.map(cat => {
+              const isActive = activeFilters.includes(cat)
+              const styles = CATEGORY_STYLES[cat]
+              return (
+                <button
+                  key={cat}
+                  onClick={() => toggleFilter(cat)}
+                  className={`rounded-full border px-3 py-1 text-xs font-medium transition-all ${isActive ? styles.active : styles.inactive}`}
+                >
+                  {CATEGORY_LABELS[cat]}
+                </button>
+              )
+            })}
+            {activeFilters.length > 0 && (
+              <button
+                onClick={() => setActiveFilters([])}
+                className="text-xs text-muted-foreground hover:text-[#390d58] underline underline-offset-2 ml-1"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        )
+      })()}
+
       {error && (
         <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
           {error}
@@ -137,7 +209,9 @@ export function AutomationsPage() {
       )}
 
       <div className="grid gap-5 md:grid-cols-2">
-        {automations.map(automation => (
+        {automations.filter(a =>
+          activeFilters.length === 0 || activeFilters.some(f => a.categories.includes(f))
+        ).map(automation => (
           <AutomationCard
             key={automation.key}
             automation={automation}

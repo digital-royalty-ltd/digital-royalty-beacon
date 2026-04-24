@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import {
   Sparkles, ArrowRight, CheckCircle2, AlertCircle, Clock,
   Wrench, Zap, Target, Link2, FileText, LayoutGrid, Map,
-  Loader2, RefreshCw,
+  Loader2, RefreshCw, Palette, MessageSquare, Image,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 
@@ -34,9 +34,12 @@ const CORE_WEIGHT        = 0.7
 const INTEGRATION_WEIGHT = 0.3
 
 const REPORT_META: Record<string, { label: string; icon: React.ReactNode }> = {
-  website_profile:       { label: 'Website Profile',  icon: <FileText  className="h-4 w-4" /> },
-  website_content_areas: { label: 'Content Areas',    icon: <LayoutGrid className="h-4 w-4" /> },
-  website_sitemap:       { label: 'Site Map',         icon: <Map        className="h-4 w-4" /> },
+  website_profile:       { label: 'Website Profile',    icon: <FileText    className="h-4 w-4" /> },
+  website_content_areas: { label: 'Content Areas',      icon: <LayoutGrid  className="h-4 w-4" /> },
+  website_sitemap:       { label: 'Site Map',            icon: <Map         className="h-4 w-4" /> },
+  website_visual:        { label: 'Visual Identity',     icon: <Palette     className="h-4 w-4" /> },
+  website_voice:         { label: 'Voice & Tone',        icon: <MessageSquare className="h-4 w-4" /> },
+  website_imagery:       { label: 'Imagery Direction',   icon: <Image       className="h-4 w-4" /> },
 }
 
 const PROVIDER_LABELS: Record<string, string> = {

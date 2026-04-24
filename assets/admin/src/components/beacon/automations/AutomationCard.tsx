@@ -1,7 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { CheckCircle2, Clock, AlertCircle, ArrowRight, Loader2, Play, Eye } from 'lucide-react'
+import { CheckCircle2, Clock, AlertCircle, ArrowRight, Loader2, Play, Eye, Repeat, CalendarClock, Layers } from 'lucide-react'
 
 export interface AutomationDependencyItem {
   report_type: string
@@ -11,11 +11,16 @@ export interface AutomationDependencyItem {
   submitted_at: string | null
 }
 
+export type AutomationMode = 'single' | 'multiple' | 'scheduled'
+export type AutomationCategory = 'content' | 'seo' | 'ppc' | 'social'
+
 export interface AutomationListItem {
   key: string
   label: string
   description: string
   deferred_key: string | null
+  categories: AutomationCategory[]
+  supported_modes: AutomationMode[]
   dependencies: AutomationDependencyItem[]
   deps_met: boolean
   status: 'tool' | 'ready' | 'dependencies_missing' | 'running' | 'completed' | 'failed'
@@ -48,7 +53,17 @@ export function AutomationCard({ automation, onOpenTool, onRun, onViewResults, r
               {automation.description}
             </CardDescription>
           </div>
-          <StatusBadge status={automation.status} />
+          <div className="flex flex-wrap gap-1 shrink-0 justify-end">
+            {automation.categories.map(cat => (
+              <CategoryBadge key={cat} category={cat} />
+            ))}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5 mt-2">
+          {automation.supported_modes.map(mode => (
+            <ModeBadge key={mode} mode={mode} />
+          ))}
+          <ActivityBadge status={automation.status} />
         </div>
       </CardHeader>
 
@@ -99,10 +114,7 @@ export function AutomationCard({ automation, onOpenTool, onRun, onViewResults, r
   )
 }
 
-function StatusBadge({ status }: { status: AutomationListItem['status'] }) {
-  if (status === 'tool') {
-    return <Badge className="text-xs bg-[#390d58] text-white shrink-0">Tool</Badge>
-  }
+function ActivityBadge({ status }: { status: AutomationListItem['status'] }) {
   if (status === 'completed') {
     return <Badge className="text-xs bg-green-600 text-white shrink-0">Done</Badge>
   }
@@ -115,7 +127,40 @@ function StatusBadge({ status }: { status: AutomationListItem['status'] }) {
   if (status === 'dependencies_missing') {
     return <Badge variant="outline" className="text-xs text-muted-foreground shrink-0">Needs Reports</Badge>
   }
-  return <Badge variant="outline" className="text-xs text-[#390d58] border-[#390d58]/30 shrink-0">Ready</Badge>
+  return null
+}
+
+function CategoryBadge({ category }: { category: AutomationCategory }) {
+  const config: Record<AutomationCategory, { label: string; style: string }> = {
+    content: { label: 'Content', style: 'bg-violet-50 text-violet-700 border-violet-200' },
+    seo:     { label: 'SEO',     style: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+    ppc:     { label: 'PPC',     style: 'bg-orange-50 text-orange-700 border-orange-200' },
+    social:  { label: 'Social',  style: 'bg-sky-50 text-sky-700 border-sky-200' },
+  }
+
+  const { label, style } = config[category]
+
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${style}`}>
+      {label}
+    </span>
+  )
+}
+
+function ModeBadge({ mode }: { mode: AutomationMode }) {
+  const config = {
+    single:    { icon: <Repeat className="h-2.5 w-2.5" />,        label: 'Single',    style: 'bg-[#390d58]/5 text-[#390d58] border-[#390d58]/15' },
+    multiple:  { icon: <Layers className="h-2.5 w-2.5" />,        label: 'Batch',     style: 'bg-blue-50 text-blue-700 border-blue-200' },
+    scheduled: { icon: <CalendarClock className="h-2.5 w-2.5" />, label: 'Scheduled', style: 'bg-amber-50 text-amber-700 border-amber-200' },
+  }
+
+  const { icon, label, style } = config[mode]
+
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${style}`}>
+      {icon} {label}
+    </span>
+  )
 }
 
 function DependencyChip({ dep }: { dep: AutomationDependencyItem }) {

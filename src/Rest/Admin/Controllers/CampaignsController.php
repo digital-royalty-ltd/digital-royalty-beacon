@@ -2,7 +2,11 @@
 
 namespace DigitalRoyalty\Beacon\Rest\Admin\Controllers;
 
+use DigitalRoyalty\Beacon\Services\Services;
 use DigitalRoyalty\Beacon\Support\Enums\Campaigns\CampaignAiEnum;
+use DigitalRoyalty\Beacon\Systems\Automations\AutomationRegistry;
+use DigitalRoyalty\Beacon\Systems\Automations\AutomationRequestPoller;
+use DigitalRoyalty\Beacon\Systems\Heartbeat\HeartbeatScheduler;
 use WP_REST_Request;
 use WP_REST_Response;
 
@@ -16,69 +20,286 @@ final class CampaignsController
     {
         $perm = fn () => current_user_can('manage_options');
 
-        register_rest_route('beacon/v1', '/admin/campaigns/onboarding', [
-            [
-                'methods'             => 'GET',
-                'callback'            => [$this, 'getOnboarding'],
-                'permission_callback' => $perm,
-            ],
-            [
-                'methods'             => 'POST',
-                'callback'            => [$this, 'setOnboarding'],
-                'permission_callback' => $perm,
-            ],
-        ]);
-
+        // Agent metadata (emoji, colour, tagline). Read-only: the plugin serves
+        // this locally so the admin UI never has to wait for Laravel. The
+        // authoritative agent assignment per channel lives on Laravel and is
+        // reached via the channel endpoints below.
         register_rest_route('beacon/v1', '/admin/campaigns/ai', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'getAi'],
+            'permission_callback' => $perm,
+        ]);
+
+        // Channel-based hiring: which agent handles which channel.
+        register_rest_route('beacon/v1', '/admin/campaigns/channels', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'getChannels'],
+            'permission_callback' => $perm,
+        ]);
+
+        register_rest_route('beacon/v1', '/admin/campaigns/hire', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'hireAgent'],
+            'permission_callback' => $perm,
+        ]);
+
+        register_rest_route('beacon/v1', '/admin/campaigns/hire-quote', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'hireQuote'],
+            'permission_callback' => $perm,
+        ]);
+
+        register_rest_route('beacon/v1', '/admin/campaigns/channels/(?P<channel>[a-z_]+)/resume', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'resumeChannel'],
+            'permission_callback' => $perm,
+        ]);
+
+        register_rest_route('beacon/v1', '/admin/campaigns/channels/(?P<channel>[a-z_]+)/ledger', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'channelLedger'],
+            'permission_callback' => $perm,
+        ]);
+
+        register_rest_route('beacon/v1', '/admin/campaigns/channels/(?P<channel>[a-z_]+)/answers', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'answerChannelQuestion'],
+            'permission_callback' => $perm,
+        ]);
+
+        // Diagnostics: run a heartbeat synchronously and return the full trace.
+        register_rest_route('beacon/v1', '/admin/campaigns/diagnostics/heartbeat', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'runHeartbeatDiagnostic'],
+            'permission_callback' => $perm,
+        ]);
+
+        // Diagnostics: run the automation poller synchronously and return the trace.
+        register_rest_route('beacon/v1', '/admin/campaigns/diagnostics/poll', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'runPollerDiagnostic'],
+            'permission_callback' => $perm,
+        ]);
+
+        // Diagnostics: read-only WP cron health for our plugin's hooks.
+        register_rest_route('beacon/v1', '/admin/campaigns/diagnostics/cron-status', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'cronStatus'],
+            'permission_callback' => $perm,
+        ]);
+
+        register_rest_route('beacon/v1', '/admin/campaigns/channels/(?P<channel>[a-z_]+)', [
             [
-                'methods'             => 'GET',
-                'callback'            => [$this, 'getAi'],
+                'methods'             => 'PUT',
+                'callback'            => [$this, 'updateChannel'],
                 'permission_callback' => $perm,
             ],
             [
-                'methods'             => 'POST',
-                'callback'            => [$this, 'setAi'],
+                'methods'             => 'DELETE',
+                'callback'            => [$this, 'unhireChannel'],
                 'permission_callback' => $perm,
             ],
         ]);
     }
 
-    public function getOnboarding(WP_REST_Request $request): WP_REST_Response
+    /**
+     * Enrich agent keys coming back from Laravel with local WP-side metadata
+     * (emoji, tagline, traits, description, color, image_url).
+     */
+    private function enrichChannels(WP_REST_Response $upstream): WP_REST_Response
     {
-        $data = get_option(CampaignAiEnum::OPTION_ONBOARDING, null);
-
-        return new WP_REST_Response(['data' => $data ?: null], 200);
-    }
-
-    public function setOnboarding(WP_REST_Request $request): WP_REST_Response
-    {
-        $params  = (array) $request->get_json_params();
-        $allowed = ['general', 'content', 'seo', 'ppc', 'social'];
-        $clean   = [];
-
-        foreach ($allowed as $section) {
-            if (!isset($params[$section]) || !is_array($params[$section])) {
-                continue;
-            }
-            $clean[$section] = array_map(
-                static fn ($v) => is_array($v)
-                    ? array_values(array_map('sanitize_text_field', $v))
-                    : sanitize_textarea_field((string) $v),
-                $params[$section]
-            );
+        $data = $upstream->get_data();
+        if (!is_array($data) || !isset($data['channels']) || !is_array($data['channels'])) {
+            return $upstream;
         }
 
-        $clean['updated_at'] = gmdate('c');
+        foreach ($data['channels'] as &$channel) {
+            if (empty($channel['agent']) || !is_array($channel['agent'])) {
+                continue;
+            }
 
-        update_option(CampaignAiEnum::OPTION_ONBOARDING, $clean, false);
+            $key = isset($channel['agent']['key']) ? (string) $channel['agent']['key'] : '';
+            if ($key === '' || !CampaignAiEnum::isValid($key)) {
+                continue;
+            }
 
-        return new WP_REST_Response(['ok' => true], 200);
+            $meta              = CampaignAiEnum::meta($key);
+            $meta['key']       = $key;
+            $meta['image_url'] = $this->resolveImageUrl($key);
+            // Preserve anything Laravel included (e.g. name/id) while overlaying our display meta.
+            $channel['agent'] = array_merge($channel['agent'], $meta);
+        }
+        unset($channel);
+
+        $upstream->set_data($data);
+
+        return $upstream;
+    }
+
+    /**
+     * Forward a Laravel response to the WP REST consumer, preserving status.
+     */
+    private function forward($response, int $successStatus = 200): WP_REST_Response
+    {
+        if (!$response->ok) {
+            $status = $response->code >= 400 ? $response->code : 500;
+            return new WP_REST_Response([
+                'message' => $response->message ?? 'Upstream request failed.',
+            ], $status);
+        }
+
+        return new WP_REST_Response($response->data, $successStatus);
+    }
+
+    public function getChannels(WP_REST_Request $request): WP_REST_Response
+    {
+        $res = Services::apiClient()->listMarketingChannels();
+
+        return $this->enrichChannels($this->forward($res));
+    }
+
+    public function hireAgent(WP_REST_Request $request): WP_REST_Response
+    {
+        $params = (array) $request->get_json_params();
+
+        $res = Services::apiClient()->hireMarketingAgent([
+            'agent_key' => isset($params['agent_key']) ? (string) $params['agent_key'] : '',
+            'channels'  => isset($params['channels']) && is_array($params['channels']) ? $params['channels'] : [],
+        ]);
+
+        return $this->enrichChannels($this->forward($res));
+    }
+
+    public function updateChannel(WP_REST_Request $request): WP_REST_Response
+    {
+        $channel = (string) $request->get_param('channel');
+        $params  = (array) $request->get_json_params();
+
+        $res = Services::apiClient()->updateMarketingChannel($channel, $params);
+
+        return $this->enrichChannels($this->forward($res));
+    }
+
+    public function unhireChannel(WP_REST_Request $request): WP_REST_Response
+    {
+        $channel = (string) $request->get_param('channel');
+
+        $res = Services::apiClient()->unhireMarketingChannel($channel);
+
+        return $this->enrichChannels($this->forward($res));
+    }
+
+    public function hireQuote(WP_REST_Request $request): WP_REST_Response
+    {
+        $raw = $request->get_param('channels');
+        $channels = is_array($raw) ? array_values(array_map('strval', $raw)) : [];
+
+        $res = Services::apiClient()->quoteMarketingHire($channels);
+
+        return $this->forward($res);
+    }
+
+    public function resumeChannel(WP_REST_Request $request): WP_REST_Response
+    {
+        $channel = (string) $request->get_param('channel');
+
+        $res = Services::apiClient()->resumeMarketingChannel($channel);
+
+        return $this->enrichChannels($this->forward($res));
+    }
+
+    public function channelLedger(WP_REST_Request $request): WP_REST_Response
+    {
+        $channel = (string) $request->get_param('channel');
+        $limit = (int) ($request->get_param('limit') ?? 50);
+
+        $res = Services::apiClient()->getMarketingChannelLedger($channel, $limit);
+
+        return $this->forward($res);
+    }
+
+    public function answerChannelQuestion(WP_REST_Request $request): WP_REST_Response
+    {
+        $channel = (string) $request->get_param('channel');
+        $params = (array) $request->get_json_params();
+
+        $res = Services::apiClient()->answerMarketingQuestion($channel, $params);
+
+        return $this->forward($res);
+    }
+
+    /**
+     * POST /admin/campaigns/diagnostics/heartbeat
+     *
+     * Body: { force_catalog?: bool }
+     * Runs the heartbeat + catalog publish synchronously and returns the full
+     * trace so operators can see what's being sent + what Laravel returns.
+     */
+    public function runHeartbeatDiagnostic(WP_REST_Request $request): WP_REST_Response
+    {
+        $params = (array) $request->get_json_params();
+        $force = (bool) ($params['force_catalog'] ?? false);
+
+        $result = HeartbeatScheduler::runDiagnostic($force);
+
+        return new WP_REST_Response($result, 200);
+    }
+
+    /**
+     * POST /admin/campaigns/diagnostics/poll
+     *
+     * Fires the automation poller synchronously and returns a trace of what
+     * was fetched, claimed, invoked, and how each ended. Lets an operator
+     * run the plugin → Laravel pull queue without waiting for WP cron.
+     */
+    public function runPollerDiagnostic(WP_REST_Request $request): WP_REST_Response
+    {
+        $poller = new AutomationRequestPoller(new AutomationRegistry());
+        $trace = $poller->runTickWithTrace();
+
+        return new WP_REST_Response($trace, 200);
+    }
+
+    /**
+     * GET /admin/campaigns/diagnostics/cron-status
+     *
+     * Reports on WP cron health so operators can tell at a glance whether
+     * the plugin's scheduled events will fire. The most common "my poller
+     * isn't running" cause is DISABLE_WP_CRON in wp-config — this surfaces
+     * it directly rather than making the operator dig into code.
+     */
+    public function cronStatus(WP_REST_Request $request): WP_REST_Response
+    {
+        $hooks = [
+            'dr_beacon_heartbeat'       => 'Heartbeat (daily)',
+            'dr_beacon_automation_poll' => 'Automation poller (every 5 min)',
+        ];
+
+        $events = [];
+        foreach ($hooks as $hook => $label) {
+            $nextTs = wp_next_scheduled($hook);
+            $event = wp_get_scheduled_event($hook);
+            $events[] = [
+                'hook'        => $hook,
+                'label'       => $label,
+                'scheduled'   => (bool) $nextTs,
+                'next_run_at' => $nextTs ? gmdate('c', (int) $nextTs) : null,
+                'recurrence'  => $event ? ($event->schedule ?? null) : null,
+                'interval'    => $event && isset($event->interval) ? (int) $event->interval : null,
+            ];
+        }
+
+        return new WP_REST_Response([
+            'disable_wp_cron'   => defined('DISABLE_WP_CRON') && DISABLE_WP_CRON,
+            'alternate_wp_cron' => defined('ALTERNATE_WP_CRON') && ALTERNATE_WP_CRON,
+            'doing_cron'        => defined('DOING_CRON') && DOING_CRON,
+            'server_time_utc'   => gmdate('c'),
+            'events'            => $events,
+        ], 200);
     }
 
     public function getAi(WP_REST_Request $request): WP_REST_Response
     {
-        $selected = (string) get_option(CampaignAiEnum::OPTION_SELECTED_AI, '');
-
         $characters = [];
         foreach (CampaignAiEnum::all() as $key) {
             $meta              = CampaignAiEnum::meta($key);
@@ -87,7 +308,10 @@ final class CampaignsController
         }
 
         return new WP_REST_Response([
-            'selected'   => $selected !== '' ? $selected : null,
+            // `selected` is retained for shape compatibility with the existing
+            // AiResponse type on the frontend. The new channel-centric flow
+            // doesn't use it — selected agents live per-channel on Laravel.
+            'selected'   => null,
             'characters' => $characters,
         ], 200);
     }
@@ -106,21 +330,4 @@ final class CampaignsController
         return null;
     }
 
-    public function setAi(WP_REST_Request $request): WP_REST_Response
-    {
-        $params = (array) $request->get_json_params();
-        $key    = isset($params['key']) ? sanitize_key((string) $params['key']) : '';
-
-        if ($key !== '' && !CampaignAiEnum::isValid($key)) {
-            return new WP_REST_Response(['message' => 'Invalid AI key.'], 422);
-        }
-
-        if ($key === '') {
-            delete_option(CampaignAiEnum::OPTION_SELECTED_AI);
-        } else {
-            update_option(CampaignAiEnum::OPTION_SELECTED_AI, $key, false);
-        }
-
-        return new WP_REST_Response(['ok' => true, 'selected' => $key !== '' ? $key : null], 200);
-    }
 }

@@ -18,6 +18,8 @@ interface Props {
   onSelect: (type: string) => void
 }
 
+type RegeneratingMap = Record<string, boolean>
+
 const statusConfig: Record<string, { label: string; icon: React.ReactNode; className: string }> = {
   submitted: {
     label:     'Submitted',
@@ -38,6 +40,11 @@ const statusConfig: Record<string, { label: string; icon: React.ReactNode; class
     label:     'Pending',
     icon:      <Loader2 className="h-3.5 w-3.5 animate-spin" />,
     className: 'bg-[#390d58]/10 text-[#390d58] border-[#390d58]/20',
+  },
+  not_generated: {
+    label:     'Not generated',
+    icon:      <Clock className="h-3.5 w-3.5" />,
+    className: 'bg-muted text-muted-foreground border-border',
   },
 }
 
@@ -62,9 +69,10 @@ function dateLabel(d: string | null): string {
 }
 
 export function ReportsSection({ onSelect }: Props) {
-  const [reports, setReports] = useState<ReportSummary[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error,   setError]   = useState<string | null>(null)
+  const [reports,       setReports]       = useState<ReportSummary[]>([])
+  const [loading,       setLoading]       = useState(true)
+  const [error,         setError]         = useState<string | null>(null)
+  const [regenerating,  setRegenerating]  = useState<RegeneratingMap>({})
 
   const fetch = () => {
     setLoading(true)
@@ -73,6 +81,20 @@ export function ReportsSection({ onSelect }: Props) {
       .then(setReports)
       .catch(() => setError('Could not load reports.'))
       .finally(() => setLoading(false))
+  }
+
+  const handleRegenerate = async (type: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setRegenerating(prev => ({ ...prev, [type]: true }))
+    try {
+      await api.post(`/reports/${type}/regenerate`)
+      // Brief delay then refresh the list to show pending status.
+      setTimeout(fetch, 1000)
+    } catch {
+      setError('Failed to queue report regeneration.')
+    } finally {
+      setRegenerating(prev => ({ ...prev, [type]: false }))
+    }
   }
 
   useEffect(() => { fetch() }, [])
@@ -139,6 +161,16 @@ export function ReportsSection({ onSelect }: Props) {
                     )}
                   </div>
                 </div>
+                <button
+                  onClick={(e) => handleRegenerate(report.type, e)}
+                  disabled={regenerating[report.type] || report.status === 'pending'}
+                  className="p-1.5 rounded-lg text-[#390d58]/40 hover:text-[#390d58] hover:bg-[#390d58]/10 transition-colors shrink-0 disabled:opacity-30 disabled:cursor-not-allowed"
+                  title={`Regenerate ${report.label}`}
+                >
+                  {regenerating[report.type] || report.status === 'pending'
+                    ? <Loader2 className="h-4 w-4 animate-spin text-[#390d58]" />
+                    : <RefreshCw className="h-4 w-4" />}
+                </button>
                 <ChevronRight className="h-4 w-4 text-[#390d58]/40 group-hover:text-[#390d58] transition-colors shrink-0" />
               </button>
             ))}

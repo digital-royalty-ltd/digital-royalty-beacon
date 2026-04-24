@@ -44,6 +44,8 @@ final class LogEventEnum
     const DEFERRED_ROW_RESCHEDULED = 'deferred_row_rescheduled';
     const DEFERRED_ROW_COMPLETED = 'deferred_row_completed';
 
+    // Automation scheduler
+    public const AUTOMATION_SCHEDULED_RUN = 'automation_scheduled_run';
 
     private function __construct() {}
 }

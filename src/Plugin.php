@@ -34,8 +34,14 @@ use DigitalRoyalty\Beacon\Rest\RestService;
 use DigitalRoyalty\Beacon\Support\Enums\Deferred\DeferredRequestKeyEnum;
 use DigitalRoyalty\Beacon\Systems\Deferred\DeferredCompletionRouter;
 use DigitalRoyalty\Beacon\Systems\Deferred\DeferredRequestRunner;
+use DigitalRoyalty\Beacon\Systems\Deferred\Handlers\ContentEnrichmentImageHandler;
 use DigitalRoyalty\Beacon\Systems\Deferred\Handlers\ContentGeneratorDraftHandler;
 use DigitalRoyalty\Beacon\Systems\Deferred\Handlers\GapAnalysisResultHandler;
+use DigitalRoyalty\Beacon\Systems\Deferred\Handlers\GenerateImageHandler;
+use DigitalRoyalty\Beacon\Systems\Deferred\Handlers\SocialShareHandler;
+use DigitalRoyalty\Beacon\Systems\Automations\AutomationRegistry;
+use DigitalRoyalty\Beacon\Systems\Automations\AutomationRequestPoller;
+use DigitalRoyalty\Beacon\Systems\Automations\AutomationScheduler;
 use DigitalRoyalty\Beacon\Systems\MaintenanceMode\MaintenanceModeHandler;
 use DigitalRoyalty\Beacon\Systems\Redirects\RedirectHandler;
 use DigitalRoyalty\Beacon\Systems\Workshop\AnnouncementBarHandler;
@@ -92,6 +98,7 @@ final class Plugin
 
         $this->registerServices();
         $this->registerHeartbeat();
+        $this->registerAutomationPoller();
         $this->registerUpdater();
         $this->registerAdminActions();
         $this->registerAdminUi();
@@ -105,11 +112,28 @@ final class Plugin
     {
         self::installTables();
         \DigitalRoyalty\Beacon\Systems\Heartbeat\HeartbeatScheduler::onActivation();
+        AutomationRequestPoller::onActivation();
     }
 
     public static function deactivate(): void
     {
         \DigitalRoyalty\Beacon\Systems\Heartbeat\HeartbeatScheduler::onDeactivation();
+        AutomationRequestPoller::onDeactivation();
+        AutomationScheduler::unschedule();
+
+        // Clear deferred runner cron
+        $deferredHook = \DigitalRoyalty\Beacon\Systems\Deferred\DeferredRequestRunner::CRON_HOOK;
+        $ts = wp_next_scheduled($deferredHook);
+        if ($ts) {
+            wp_unschedule_event($ts, $deferredHook);
+        }
+
+        // Cancel all pending Action Scheduler actions in our group
+        if (function_exists('as_unschedule_all_actions')) {
+            as_unschedule_all_actions(\DigitalRoyalty\Beacon\Systems\Reports\ReportManager::ACTION_RUN_NEXT, [], 'dr-beacon');
+            as_unschedule_all_actions(\DigitalRoyalty\Beacon\Systems\Reports\ReportManager::ACTION_RUN_REPORT, [], 'dr-beacon');
+            as_unschedule_all_actions(\DigitalRoyalty\Beacon\Systems\Reports\ReportService::ACTION_REGENERATE_REPORT, [], 'dr-beacon');
+        }
     }
 
     private function ensureSchema(): void
@@ -141,6 +165,11 @@ final class Plugin
     private function registerHeartbeat(): void
     {
         (new \DigitalRoyalty\Beacon\Systems\Heartbeat\HeartbeatScheduler())->register();
+    }
+
+    private function registerAutomationPoller(): void
+    {
+        (new AutomationRequestPoller(new AutomationRegistry()))->register();
     }
 
     private function registerUpdater(): void
@@ -218,12 +247,37 @@ final class Plugin
             new GapAnalysisResultHandler()
         );
 
+        $router->register(
+            DeferredRequestKeyEnum::GENERATE_IMAGE,
+            new GenerateImageHandler()
+        );
+
+        $router->register(
+            DeferredRequestKeyEnum::CONTENT_ENRICHMENT_IMAGE,
+            new ContentEnrichmentImageHandler()
+        );
+
+        $router->register(
+            DeferredRequestKeyEnum::NEWS_ARTICLE_GENERATE,
+            new ContentGeneratorDraftHandler() // Same output shape (Article artifact → WP draft)
+        );
+
+        $router->register(
+            DeferredRequestKeyEnum::SOCIAL_SHARE_GENERATE,
+            new SocialShareHandler()
+        );
+
         $runner = new DeferredRequestRunner($repo, $router);
         $runner->register();
 
         if (!wp_next_scheduled(DeferredRequestRunner::CRON_HOOK)) {
             wp_schedule_single_event(time() + 60, DeferredRequestRunner::CRON_HOOK);
         }
+
+        // Automation scheduler (recurring scheduled runs)
+        $scheduler = new AutomationScheduler();
+        $scheduler->register();
+        $scheduler->ensureScheduled();
     }
 
     private function registerRedirects(): void

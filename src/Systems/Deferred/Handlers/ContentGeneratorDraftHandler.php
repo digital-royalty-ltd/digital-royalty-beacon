@@ -52,29 +52,39 @@ final class ContentGeneratorDraftHandler implements DeferredCompletionHandlerInt
             ? $payload['content_html']
             : '';
 
-        // Resolve WP routing from the local content area map.
-        // The payload stores content_area_key (the normalised map key) so we
-        // can look up post_type and primary taxonomy without WP-specific fields
-        // ever appearing in the Beacon API payload.
-        $original       = $this->decodeJsonField($row['payload'] ?? null);
-        $contentAreaKey = isset($original['content_area_key']) && is_string($original['content_area_key'])
-            ? $original['content_area_key']
-            : '';
+        // Resolve WP routing from adapter_context (echoed back by Laravel)
+        // or fall back to the content area map for older requests.
+        $adapterContext = isset($data['adapter_context']) && is_array($data['adapter_context'])
+            ? $data['adapter_context']
+            : [];
 
-        $routing  = [];
-        if ($contentAreaKey !== '') {
-            $map   = get_option('dr_beacon_content_area_map', []);
-            $entry = is_array($map[$contentAreaKey] ?? null) ? $map[$contentAreaKey] : [];
-            $routing = is_array($entry['routing'] ?? null) ? $entry['routing'] : [];
-        }
-
-        $postType = isset($routing['post_type']) && is_string($routing['post_type']) && post_type_exists($routing['post_type'])
-            ? $routing['post_type']
-            : 'post';
-
-        // Build tax_input from primary_taxonomy if present; terms are assigned
-        // by the editor after reviewing the draft.
+        $postType = 'post';
         $taxInput = [];
+
+        if (!empty($adapterContext)) {
+            // New path: adapter_context carries explicit post_type + taxonomies.
+            if (isset($adapterContext['post_type']) && is_string($adapterContext['post_type']) && post_type_exists($adapterContext['post_type'])) {
+                $postType = $adapterContext['post_type'];
+            }
+            if (isset($adapterContext['taxonomies']) && is_array($adapterContext['taxonomies'])) {
+                $taxInput = $adapterContext['taxonomies'];
+            }
+        } else {
+            // Legacy path: resolve from content area map.
+            $original       = $this->decodeJsonField($row['payload'] ?? null);
+            $contentAreaKey = isset($original['content_area_key']) && is_string($original['content_area_key'])
+                ? $original['content_area_key']
+                : '';
+
+            if ($contentAreaKey !== '') {
+                $map   = get_option('dr_beacon_content_area_map', []);
+                $entry = is_array($map[$contentAreaKey] ?? null) ? $map[$contentAreaKey] : [];
+                $routing = is_array($entry['routing'] ?? null) ? $entry['routing'] : [];
+                if (isset($routing['post_type']) && is_string($routing['post_type']) && post_type_exists($routing['post_type'])) {
+                    $postType = $routing['post_type'];
+                }
+            }
+        }
 
         $postId = wp_insert_post([
             'post_type' => $postType,

@@ -23,6 +23,7 @@ declare global {
       restBase:       string
       adminUrl:       string
       pluginVersion:  string
+      beaconApiBase:  string
       dismissedOnboardingScreens: string[]
     }
   }

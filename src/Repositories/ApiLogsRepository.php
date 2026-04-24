@@ -88,6 +88,13 @@ final class ApiLogsRepository
     /**
      * Count requests in the last N seconds (for concurrent/burst limiting).
      */
+    public function deleteAll(): void
+    {
+        $table = ApiLogsTable::tableName($this->wpdb);
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $this->wpdb->query("TRUNCATE TABLE {$table}");
+    }
+
     public function countRecent(int $apiKeyId, int $seconds = 5): int
     {
         $table = ApiLogsTable::tableName($this->wpdb);

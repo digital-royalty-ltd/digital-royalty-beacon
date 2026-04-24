@@ -103,6 +103,8 @@ final class AdminAssets
             'siteUrl'       => get_site_url(),
             'siteName'      => get_bloginfo('name'),
             'pluginVersion' => defined('DR_BEACON_VERSION') ? DR_BEACON_VERSION : '',
+            'beaconApiBase' => defined('DR_BEACON_API_BASE') ? rtrim(DR_BEACON_API_BASE, '/') . '/beacon/' . DR_BEACON_API_VERSION : '',
+            'dashboardUrl'  => defined('DR_BEACON_API_BASE') ? rtrim(DR_BEACON_API_BASE, '/') : '',
 
             // Per-user permanently dismissed onboarding screens
             'dismissedOnboardingScreens' => OnboardingController::dismissedForUser(get_current_user_id()),

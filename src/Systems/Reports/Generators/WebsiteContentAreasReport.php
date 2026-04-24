@@ -9,28 +9,17 @@ use DigitalRoyalty\Beacon\Systems\Reports\ReportGeneratorInterface;
 /**
  * Generates the website_content_areas report.
  *
- * ## Agnosticism and local routing
+ * Content areas are identified locally from site structure:
+ * - Every collection (CPT / posts) is a content area
+ * - Parent pages with children are section hubs
  *
- * Beacon is CMS-agnostic, so the submitted report must never contain
- * WordPress-specific field names or values (post type keys, term IDs, page IDs).
- * However, when Beacon later instructs the plugin to place generated content
- * into a content area (e.g. "Services"), the plugin must know how to route
- * that back to the correct WP structure.
+ * The report stores the structural overview (pages, collections, menus,
+ * front page) plus the identified content_areas. An optional AI call
+ * enriches areas with intent descriptions and refined topics.
  *
- * This is resolved with two parallel outputs:
- *
- * 1. **Submitted report** — agnostic. content_areas contains only:
- *    label, intent, topics. The sitemap includes slugs (neutral) but not
- *    WP post type keys.
- *
- * 2. **Local map** (`dr_beacon_content_area_map` WP option) — WP-specific.
- *    Keyed by normalised label. Each entry holds the full routing info
- *    (post_type, taxonomy, page_id, etc.) needed to place content in WP.
- *
- * The correlation is done via temporary `ref` fields added to the sitemap
- * before it is sent to the AI helper. The AI echoes those refs back so the
- * plugin can look up routing info per content area. Refs are stripped from
- * everything before submission to Beacon.
+ * A local routing map (`dr_beacon_content_area_map` WP option) is
+ * persisted so tools can place generated content into the right
+ * WP structure (post type, taxonomy, page ID).
  */
 final class WebsiteContentAreasReport implements ReportGeneratorInterface
 {
@@ -41,173 +30,186 @@ final class WebsiteContentAreasReport implements ReportGeneratorInterface
 
     public function version(): int
     {
-        return 2;
+        return 3;
     }
 
     public function generate(): array
     {
-        // Build the sitemap annotated with ref IDs, and a parallel refMap
-        // that maps each ref → WP routing info. The refs are ephemeral: they
-        // travel to the AI helper and back, then are stripped before anything
-        // is stored or submitted.
-        [$sitemapWithRefs, $refMap] = $this->buildSitemapWithRefs();
+        [$structure, $refMap] = $this->buildSiteStructure();
 
-        // The submitted report gets a clean, ref-free sitemap without WP keys.
-        $sitemapForReport = $this->stripRoutingData($sitemapWithRefs);
+        // Identify content areas locally from the site's own structure.
+        $contentAreas = $this->identifyContentAreas($structure, $refMap);
+
+        // Persist the routing map so tools can place content into the right WP structure.
+        $localMap = $this->buildLocalContentAreaMap($contentAreas, $refMap);
+        update_option('dr_beacon_content_area_map', $localMap, false);
+
+        // Optionally enrich with AI-generated intent and topics.
+        $contentAreas = $this->enrichWithAi($contentAreas, $structure, $refMap);
 
         $data = [
-            'reading_settings' => $this->buildReadingSettings(),
-            'navigation'       => $this->buildNavigation(),
-            'sitemap'          => $sitemapForReport,
-            'content_areas'    => [],
-        ];
-
-        $resp = Services::apiClient()->analyseContentAreas($sitemapWithRefs);
-
-        if ($resp->ok && is_array($resp->data['content_areas'] ?? null)) {
-            $rawAreas = $resp->data['content_areas'];
-
-            // Build and persist the local WP routing map before stripping refs.
-            $localMap = $this->buildLocalContentAreaMap($rawAreas, $refMap);
-            update_option('dr_beacon_content_area_map', $localMap, false);
-
-            // Strip refs from the AI response — the submitted report is agnostic.
-            $data['content_areas'] = array_map(static function (array $area): array {
+            'content_areas' => array_map(static function (array $area): array {
                 unset($area['ref']);
                 return $area;
-            }, array_filter($rawAreas, 'is_array'));
+            }, $contentAreas),
+        ];
 
-            Services::logger()->info(LogScopeEnum::REPORTS, 'generator_content_areas_analysed', 'AI content area analysis merged into report.', [
-                'type'    => $this->type(),
-                'version' => $this->version(),
-                'count'   => count($data['content_areas']),
-            ]);
-        } else {
-            Services::logger()->warning(LogScopeEnum::REPORTS, 'generator_content_areas_skipped', 'AI content area analysis unavailable; content_areas left empty.', [
-                'type'        => $this->type(),
-                'version'     => $this->version(),
-                'status_code' => $resp->code,
-                'message'     => $resp->message,
-            ]);
-        }
+        Services::logger()->info(LogScopeEnum::REPORTS, 'generator_content_areas_complete', 'Content areas report generated.', [
+            'type'    => $this->type(),
+            'version' => $this->version(),
+            'count'   => count($data['content_areas']),
+        ]);
 
         return $data;
     }
 
     // -------------------------------------------------------------------------
-    // Reading settings — agnostic field names, no CMS-internal IDs
-    // -------------------------------------------------------------------------
-
-    private function buildReadingSettings(): array
-    {
-        $showOnFront = (string) get_option('show_on_front', 'posts');
-        $frontPageId = (int) get_option('page_on_front', 0);
-        $feedPageId  = (int) get_option('page_for_posts', 0);
-
-        return [
-            'front_page_type' => $showOnFront === 'page' ? 'static_page' : 'feed',
-            'front_page_slug' => $frontPageId > 0 ? (string) get_post_field('post_name', $frontPageId) : null,
-            'feed_page_slug'  => $feedPageId > 0 ? (string) get_post_field('post_name', $feedPageId) : null,
-            'items_per_page'  => (int) get_option('posts_per_page', 10),
-        ];
-    }
-
-    // -------------------------------------------------------------------------
-    // Navigation menus
-    // -------------------------------------------------------------------------
-
-    private function buildNavigation(): array
-    {
-        $menus = wp_get_nav_menus();
-        if (empty($menus) || !is_array($menus)) {
-            return [];
-        }
-
-        $locations      = get_nav_menu_locations();
-        $locationByMenu = array_flip($locations);
-
-        $result = [];
-        foreach ($menus as $menu) {
-            $items = wp_get_nav_menu_items($menu->term_id);
-            if (!is_array($items)) {
-                continue;
-            }
-
-            $result[] = [
-                'name'     => $menu->name,
-                'location' => $locationByMenu[$menu->term_id] ?? null,
-                'items'    => $this->buildMenuTree($items, 0, 3),
-            ];
-        }
-
-        return $result;
-    }
-
-    private function buildMenuTree(array $items, int $parentId, int $maxDepth): array
-    {
-        if ($maxDepth === 0) {
-            return [];
-        }
-
-        $tree = [];
-        foreach ($items as $item) {
-            if ((int) $item->menu_item_parent !== $parentId) {
-                continue;
-            }
-
-            $node = [
-                'title' => $item->title,
-                'url'   => $item->url,
-            ];
-
-            $children = $this->buildMenuTree($items, (int) $item->ID, $maxDepth - 1);
-            if (!empty($children)) {
-                $node['children'] = $children;
-            }
-
-            $tree[] = $node;
-        }
-
-        return $tree;
-    }
-
-    // -------------------------------------------------------------------------
-    // Sitemap with refs
+    // Local content area identification
     //
-    // Refs are temporary correlation handles added solely for the AI round-trip.
-    // Format: "page:{slug}" for pages, "collection:{post_type}" for CPTs.
-    // They let the plugin correlate each AI-identified content area back to the
-    // specific WP structure it maps to (page ID, post type, taxonomy, etc.).
+    // Content areas are identified from structure alone — no API call needed.
+    // A content area is: a collection (CPT/posts) or a page section with children.
     // -------------------------------------------------------------------------
 
     /**
-     * Build the full sitemap annotated with ephemeral ref IDs, and a parallel
-     * refMap that carries the WP-specific routing info keyed by those refs.
+     * @param  array<string, mixed>                   $structure
+     * @param  array<string, array<string, mixed>>    $refMap
+     * @return array<int, array<string, mixed>>
+     */
+    private function identifyContentAreas(array $structure, array $refMap): array
+    {
+        $areas = [];
+
+        // Every collection is a content area — it exists as a registered content type.
+        foreach ($structure['collections'] ?? [] as $collection) {
+            $ref = $collection['ref'] ?? '';
+
+            $area = [
+                'ref'        => $ref,
+                'label'      => $collection['label'] ?? '',
+                'item_count' => $collection['item_count'] ?? 0,
+                'topics'     => $collection['categories'] ?? [],
+            ];
+
+            if ($collection['has_archive'] ?? false) {
+                $area['has_archive'] = true;
+            }
+
+            $areas[] = $area;
+        }
+
+        // Parent pages with children are section hubs (e.g. Services → sub-service pages).
+        foreach ($structure['pages'] ?? [] as $page) {
+            $childCount = $page['child_count'] ?? count($page['children'] ?? []);
+            if ($childCount === 0) {
+                continue;
+            }
+
+            $areas[] = [
+                'ref'        => $page['ref'] ?? '',
+                'label'      => $page['title'] ?? '',
+                'item_count' => $childCount,
+                'topics'     => array_map(
+                    fn(array $c): string => $c['title'] ?? '',
+                    $page['children'] ?? []
+                ),
+            ];
+        }
+
+        return $areas;
+    }
+
+    /**
+     * Try to enrich content areas with AI-generated intent and topics.
+     * If the API call fails, the areas are returned as-is — still useful.
+     *
+     * @param  array<int, array<string, mixed>>       $areas
+     * @param  array<string, mixed>                   $structure
+     * @param  array<string, array<string, mixed>>    $refMap
+     * @return array<int, array<string, mixed>>
+     */
+    private function enrichWithAi(array $areas, array $structure, array $refMap): array
+    {
+        $resp = Services::apiClient()->analyseContentAreas($structure);
+
+        if (!$resp->ok || !is_array($resp->data['content_areas'] ?? null)) {
+            Services::logger()->warning(LogScopeEnum::REPORTS, 'generator_content_areas_ai_skipped', 'AI enrichment unavailable; using locally identified areas.', [
+                'status_code' => $resp->code,
+                'message'     => $resp->message,
+            ]);
+            return $areas;
+        }
+
+        $aiAreas = $resp->data['content_areas'];
+
+        // Update the routing map with any AI-identified areas we missed locally.
+        $localMap = $this->buildLocalContentAreaMap($aiAreas, $refMap);
+        update_option('dr_beacon_content_area_map', $localMap, false);
+
+        // Merge AI data: replace local areas with AI versions (richer intent/topics),
+        // and add any AI-identified areas that weren't found locally.
+        $merged   = [];
+        $usedRefs = [];
+
+        foreach ($aiAreas as $aiArea) {
+            if (!is_array($aiArea) || empty($aiArea['label'])) {
+                continue;
+            }
+            $merged[]   = $aiArea;
+            $usedRefs[] = $aiArea['ref'] ?? '';
+        }
+
+        // Keep any locally identified areas the AI didn't return.
+        foreach ($areas as $local) {
+            $ref = $local['ref'] ?? '';
+            if ($ref !== '' && in_array($ref, $usedRefs, true)) {
+                continue;
+            }
+            $merged[] = $local;
+        }
+
+        Services::logger()->info(LogScopeEnum::REPORTS, 'generator_content_areas_ai_enriched', 'AI enrichment applied to content areas.', [
+            'ai_count'    => count($aiAreas),
+            'local_count' => count($areas),
+            'merged_count' => count($merged),
+        ]);
+
+        return $merged;
+    }
+
+
+    // -------------------------------------------------------------------------
+    // Site structure snapshot
+    // -------------------------------------------------------------------------
+
+    /**
+     * Build a lightweight structural snapshot of the site for the AI analyser.
      *
      * @return array{0: array<string, mixed>, 1: array<string, array<string, mixed>>}
      */
-    private function buildSitemapWithRefs(): array
+    private function buildSiteStructure(): array
     {
         $refMap = [];
 
-        $pages       = $this->buildPageTreeWithRefs($refMap);
-        $collections = $this->buildCollectionSitemapsWithRefs($refMap);
-
         return [
-            ['pages' => $pages, 'collections' => $collections],
+            [
+                'pages'       => $this->buildPageSkeleton($refMap),
+                'collections' => $this->buildCollectionSkeleton($refMap),
+                'menus'       => $this->buildMenuSkeleton(),
+                'front_page'  => $this->buildFrontPageInfo(),
+            ],
             $refMap,
         ];
     }
 
+    // -------------------------------------------------------------------------
+    // Pages — just the skeleton: slug, title, child count
+    // -------------------------------------------------------------------------
+
     /**
-     * Build hierarchical page tree. Each node gets a ref and its WP routing
-     * info is added to $refMap. Only top-level pages get refs — child pages
-     * are under the same content area as their parent section.
-     *
-     * @param  array<string, array<string, mixed>> $refMap  Modified by reference
+     * @param array<string, array<string, mixed>> $refMap Modified by reference
      * @return array<int, array<string, mixed>>
      */
-    private function buildPageTreeWithRefs(array &$refMap): array
+    private function buildPageSkeleton(array &$refMap): array
     {
         /** @var \WP_Post[] $allPages */
         $allPages = get_posts([
@@ -229,50 +231,42 @@ final class WebsiteContentAreasReport implements ReportGeneratorInterface
             $childrenByParent[(int) $page->post_parent][] = $page;
         }
 
-        return $this->buildPageNodesWithRefs($childrenByParent, 0, 3, true, $refMap);
+        return $this->buildPageNodes($childrenByParent, 0, $refMap);
     }
 
     /**
-     * @param  array<int, \WP_Post[]>              $childrenByParent
-     * @param  array<string, array<string, mixed>> $refMap  Modified by reference
+     * @param array<int, \WP_Post[]> $childrenByParent
+     * @param array<string, array<string, mixed>> $refMap Modified by reference
      * @return array<int, array<string, mixed>>
      */
-    private function buildPageNodesWithRefs(
-        array $childrenByParent,
-        int $parentId,
-        int $maxDepth,
-        bool $addRef,
-        array &$refMap
-    ): array {
+    private function buildPageNodes(array $childrenByParent, int $parentId, array &$refMap): array
+    {
         $nodes = [];
 
         foreach ($childrenByParent[$parentId] ?? [] as $page) {
-            $node = [
-                'slug'    => $page->post_name,
-                'title'   => $page->post_title,
-                'excerpt' => $this->extractTextExcerpt($page, 120),
+            $ref          = 'page:' . $page->post_name;
+            $refMap[$ref] = [
+                'type'      => 'section',
+                'post_type' => 'page',
+                'slug'      => $page->post_name,
+                'page_id'   => $page->ID,
             ];
 
-            if ($addRef) {
-                $ref          = 'page:' . $page->post_name;
-                $node['ref']  = $ref;
-                $refMap[$ref] = [
-                    'type'      => 'section',
-                    'post_type' => 'page',
-                    'slug'      => $page->post_name,
-                    'page_id'   => $page->ID,
-                ];
-            }
+            $children    = $this->buildPageNodes($childrenByParent, $page->ID, $refMap);
+            $childCount  = count($childrenByParent[$page->ID] ?? []);
 
-            if ($maxDepth > 1 && !empty($childrenByParent[$page->ID])) {
-                // Children share the parent's content area — no separate refs
-                $node['children'] = $this->buildPageNodesWithRefs(
-                    $childrenByParent,
-                    $page->ID,
-                    $maxDepth - 1,
-                    false,
-                    $refMap
-                );
+            $node = [
+                'ref'   => $ref,
+                'slug'  => $page->post_name,
+                'title' => $page->post_title,
+            ];
+
+            if ($childCount > 0) {
+                $node['child_count'] = $childCount;
+                $node['children']    = array_map(fn(array $c): array => [
+                    'slug'  => $c['slug'],
+                    'title' => $c['title'],
+                ], $children);
             }
 
             $nodes[] = $node;
@@ -281,14 +275,15 @@ final class WebsiteContentAreasReport implements ReportGeneratorInterface
         return $nodes;
     }
 
+    // -------------------------------------------------------------------------
+    // Collections — label, archive flag, item count, taxonomy term names
+    // -------------------------------------------------------------------------
+
     /**
-     * Build collection entries. Each collection gets a ref and its WP routing
-     * info (post type, primary taxonomy) is added to $refMap.
-     *
-     * @param  array<string, array<string, mixed>> $refMap  Modified by reference
+     * @param array<string, array<string, mixed>> $refMap Modified by reference
      * @return array<int, array<string, mixed>>
      */
-    private function buildCollectionSitemapsWithRefs(array &$refMap): array
+    private function buildCollectionSkeleton(array &$refMap): array
     {
         $postTypes = get_post_types(['public' => true], 'objects');
         $skip      = ['page', 'attachment'];
@@ -302,10 +297,6 @@ final class WebsiteContentAreasReport implements ReportGeneratorInterface
             $count     = wp_count_posts($postType->name);
             $itemCount = (int) ($count->publish ?? 0);
 
-            if ($itemCount === 0) {
-                continue;
-            }
-
             $primaryTaxonomy = $this->pickPrimaryTaxonomy($postType->name);
 
             $ref          = 'collection:' . $postType->name;
@@ -317,16 +308,14 @@ final class WebsiteContentAreasReport implements ReportGeneratorInterface
 
             $entry = [
                 'ref'         => $ref,
-                'key'         => $postType->name,   // present for helper only; stripped before submission
                 'label'       => $postType->label,
-                'archive_url' => $this->resolveArchiveUrl($postType),
+                'has_archive' => (bool) $postType->has_archive,
                 'item_count'  => $itemCount,
             ];
 
+            // Just the term names — enough for the AI to understand topics
             if ($primaryTaxonomy !== null) {
-                $entry['groups'] = $this->buildTaxonomyGroups($postType->name, $primaryTaxonomy);
-            } else {
-                $entry['items'] = $this->buildFlatItems($postType->name, 20);
+                $entry['categories'] = $this->getTermNames($primaryTaxonomy);
             }
 
             $result[] = $entry;
@@ -335,59 +324,87 @@ final class WebsiteContentAreasReport implements ReportGeneratorInterface
         return $result;
     }
 
+    /**
+     * @return string[]
+     */
+    private function getTermNames(string $taxonomy): array
+    {
+        $terms = get_terms([
+            'taxonomy'   => $taxonomy,
+            'hide_empty' => false,
+            'orderby'    => 'count',
+            'order'      => 'DESC',
+            'number'     => 10,
+            'fields'     => 'names',
+        ]);
+
+        if (is_wp_error($terms) || !is_array($terms)) {
+            return [];
+        }
+
+        return array_values($terms);
+    }
+
     // -------------------------------------------------------------------------
-    // Strip WP routing data before report submission
+    // Menus — lightweight list of titles (shows what the site considers important)
     // -------------------------------------------------------------------------
 
     /**
-     * Return a clean, agnostic copy of the sitemap:
-     * - 'ref' removed from all page nodes (recursively) and collection entries
-     * - 'key' (WP post type name) removed from collection entries
-     *
-     * @param  array<string, mixed> $sitemap
-     * @return array<string, mixed>
+     * @return array<int, array<string, mixed>>
      */
-    private function stripRoutingData(array $sitemap): array
+    private function buildMenuSkeleton(): array
     {
-        $pages = array_map(
-            fn(array $page): array => $this->stripPageRef($page),
-            $sitemap['pages'] ?? []
-        );
-
-        $collections = array_map(static function (array $collection): array {
-            unset($collection['ref'], $collection['key']);
-            return $collection;
-        }, $sitemap['collections'] ?? []);
-
-        return ['pages' => $pages, 'collections' => $collections];
-    }
-
-    /** @param array<string, mixed> $page */
-    private function stripPageRef(array $page): array
-    {
-        unset($page['ref']);
-
-        if (!empty($page['children'])) {
-            $page['children'] = array_map(
-                fn(array $child): array => $this->stripPageRef($child),
-                $page['children']
-            );
+        $menus = wp_get_nav_menus();
+        if (empty($menus) || !is_array($menus)) {
+            return [];
         }
 
-        return $page;
+        $locations      = get_nav_menu_locations();
+        $locationByMenu = array_flip($locations);
+
+        $result = [];
+        foreach ($menus as $menu) {
+            $items = wp_get_nav_menu_items($menu->term_id);
+            if (!is_array($items)) {
+                continue;
+            }
+
+            $result[] = [
+                'name'     => $menu->name,
+                'location' => $locationByMenu[$menu->term_id] ?? null,
+                'items'    => array_map(fn($item): string => $item->title, $items),
+            ];
+        }
+
+        return $result;
+    }
+
+    // -------------------------------------------------------------------------
+    // Front page info
+    // -------------------------------------------------------------------------
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildFrontPageInfo(): array
+    {
+        $showOnFront = (string) get_option('show_on_front', 'posts');
+        $frontPageId = (int) get_option('page_on_front', 0);
+        $feedPageId  = (int) get_option('page_for_posts', 0);
+
+        return [
+            'type'      => $showOnFront === 'page' ? 'static_page' : 'feed',
+            'page_slug' => $frontPageId > 0 ? (string) get_post_field('post_name', $frontPageId) : null,
+            'feed_slug' => $feedPageId > 0 ? (string) get_post_field('post_name', $feedPageId) : null,
+        ];
     }
 
     // -------------------------------------------------------------------------
     // Local content area map
-    //
-    // Stored in dr_beacon_content_area_map WP option.
-    // Keyed by normalised label so the plugin can look up WP routing when
-    // Beacon later references a content area by label (e.g. "Services").
     // -------------------------------------------------------------------------
 
     /**
-     * Correlate AI-identified content areas with WP routing info via refs,
-     * and return the local map ready for storage.
+     * Correlate AI-identified content areas with WP routing info via refs.
      *
      * @param  array<int, mixed>                   $aiContentAreas
      * @param  array<string, array<string, mixed>> $refMap
@@ -434,7 +451,7 @@ final class WebsiteContentAreasReport implements ReportGeneratorInterface
     }
 
     // -------------------------------------------------------------------------
-    // Taxonomy grouping helpers
+    // Helpers
     // -------------------------------------------------------------------------
 
     private function pickPrimaryTaxonomy(string $postType): ?string
@@ -456,127 +473,5 @@ final class WebsiteContentAreasReport implements ReportGeneratorInterface
         }
 
         return null;
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    private function buildTaxonomyGroups(string $postType, string $taxonomy): array
-    {
-        $terms = get_terms([
-            'taxonomy'   => $taxonomy,
-            'hide_empty' => true,
-            'orderby'    => 'count',
-            'order'      => 'DESC',
-            'number'     => 8,
-        ]);
-
-        if (is_wp_error($terms) || empty($terms)) {
-            return [];
-        }
-
-        $groups = [];
-        foreach ($terms as $term) {
-            /** @var \WP_Post[] $posts */
-            $posts = get_posts([
-                'post_type'     => $postType,
-                'post_status'   => 'publish',
-                'numberposts'   => 5,
-                'orderby'       => 'date',
-                'order'         => 'DESC',
-                'no_found_rows' => true,
-                'tax_query'     => [[
-                    'taxonomy' => $taxonomy,
-                    'field'    => 'term_id',
-                    'terms'    => $term->term_id,
-                ]],
-            ]);
-
-            if (empty($posts)) {
-                continue;
-            }
-
-            $groups[] = [
-                'term_slug'  => $term->slug,
-                'term_label' => $term->name,
-                'items'      => array_map(fn(\WP_Post $p): array => [
-                    'slug'    => $p->post_name,
-                    'title'   => $p->post_title,
-                    'excerpt' => $this->extractTextExcerpt($p, 80),
-                ], $posts),
-            ];
-        }
-
-        return $groups;
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    private function buildFlatItems(string $postType, int $limit): array
-    {
-        /** @var \WP_Post[] $posts */
-        $posts = get_posts([
-            'post_type'      => $postType,
-            'post_status'    => 'publish',
-            'posts_per_page' => $limit,
-            'orderby'        => 'date',
-            'order'          => 'DESC',
-            'no_found_rows'  => true,
-        ]);
-
-        return array_map(fn(\WP_Post $p): array => [
-            'slug'    => $p->post_name,
-            'title'   => $p->post_title,
-            'excerpt' => $this->extractTextExcerpt($p, 80),
-        ], $posts);
-    }
-
-    private function resolveArchiveUrl(\WP_Post_Type $postType): ?string
-    {
-        if ($postType->name === 'post') {
-            $feedPageId = (int) get_option('page_for_posts', 0);
-            if ($feedPageId > 0) {
-                return (string) get_permalink($feedPageId);
-            }
-            return (string) home_url('/');
-        }
-
-        if ($postType->has_archive) {
-            $link = get_post_type_archive_link($postType->name);
-            return $link !== false ? (string) $link : null;
-        }
-
-        return null;
-    }
-
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
-    private function extractTextExcerpt(\WP_Post $post, int $maxChars = 120): string
-    {
-        if (!empty($post->post_excerpt)) {
-            $text = wp_strip_all_tags($post->post_excerpt);
-            $text = (string) preg_replace('/\s+/', ' ', $text);
-            return trim($text);
-        }
-
-        $content = $post->post_content;
-        $content = strip_shortcodes($content);
-        $content = wp_strip_all_tags($content);
-        $content = (string) preg_replace('/\s+/', ' ', $content);
-        $content = trim($content);
-
-        if (strlen($content) > $maxChars) {
-            $content   = substr($content, 0, $maxChars);
-            $lastSpace = strrpos($content, ' ');
-            if ($lastSpace !== false) {
-                $content = substr($content, 0, $lastSpace);
-            }
-            $content .= '…';
-        }
-
-        return $content;
     }
 }

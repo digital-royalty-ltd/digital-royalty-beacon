@@ -122,6 +122,13 @@ final class ApiKeysRepository
         $this->wpdb->delete($table, ['id' => $id], ['%d']);
     }
 
+    public function deleteAll(): void
+    {
+        $table = ApiKeysTable::tableName($this->wpdb);
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $this->wpdb->query("TRUNCATE TABLE {$table}");
+    }
+
     public function touchLastUsed(int $id): void
     {
         $table = ApiKeysTable::tableName($this->wpdb);

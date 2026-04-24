@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { ArrowLeft, Send, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
+import { ArrowLeft, Send, Loader2, CheckCircle2, AlertCircle, MapPin } from 'lucide-react'
 import { api } from '@/lib/api'
 import { JsonEditor } from './JsonEditor'
 import type { Content, ContentErrors, OnChangeStatus } from 'vanilla-jsoneditor'
@@ -15,6 +15,7 @@ interface ReportDetail {
   generated_at: string | null
   submitted_at: string | null
   payload:      unknown
+  local_maps?:  Record<string, unknown>
 }
 
 interface Props {
@@ -132,7 +133,7 @@ export function ReportEditor({ reportType, onBack }: Props) {
         </div>
       ) : loadError ? (
         <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{loadError}</p>
-      ) : report ? (
+      ) : report ? (<>
         <Card className="border-[#390d58]/20 overflow-hidden">
           <div className="h-1 bg-gradient-to-r from-[#390d58] to-[#5a1a8a]" />
           <CardHeader>
@@ -219,7 +220,40 @@ export function ReportEditor({ reportType, onBack }: Props) {
             </div>
           </CardContent>
         </Card>
-      ) : null}
+
+        {/* Local routing maps */}
+        {report.local_maps && Object.keys(report.local_maps).length > 0 && (
+          <Card className="border-[#390d58]/20 overflow-hidden">
+            <div className="h-1 bg-gradient-to-r from-[#390d58] to-[#5a1a8a]" />
+            <CardHeader>
+              <div className="flex items-center gap-4">
+                <div className="rounded-xl bg-[#390d58] p-3 text-white shadow-md shadow-[#390d58]/20">
+                  <MapPin className="h-5 w-5" />
+                </div>
+                <div>
+                  <CardTitle className="text-lg text-[#390d58]">Local Routing Maps</CardTitle>
+                  <CardDescription>
+                    WordPress-specific routing data that maps abstract report items back to local structures (post types, taxonomies, page IDs).
+                    These are stored locally and never sent to Beacon.
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {Object.entries(report.local_maps).map(([key, value]) => (
+                <div key={key}>
+                  <h4 className="text-sm font-semibold text-[#390d58] mb-2">
+                    {key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                  </h4>
+                  <pre className="text-xs bg-[#390d58]/5 border border-[#390d58]/10 rounded-xl p-4 overflow-x-auto max-h-96 overflow-y-auto font-mono">
+                    {JSON.stringify(value, null, 2)}
+                  </pre>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+      </>) : null}
     </div>
   )
 }

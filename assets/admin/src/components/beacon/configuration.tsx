@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import {
   CheckCircle2, XCircle, Circle, Key, Globe,
-  Building2, Shield, Loader2,
+  Building2, Shield, Loader2, Server,
 } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
 
@@ -40,10 +40,12 @@ export function Configuration() {
   const siteUrl   = window.BeaconData?.siteUrl   ?? ''
   const siteName  = window.BeaconData?.siteName  ?? ''
 
-  const [apiKey,    setApiKey]    = useState('')
-  const [status,    setStatus]    = useState<ConnectionStatus>(hasApiKey ? 'verified' : 'unchecked')
-  const [maskedKey, setMaskedKey] = useState('')
-  const [errorMsg,  setErrorMsg]  = useState<string | null>(null)
+  const [apiKey,     setApiKey]     = useState('')
+  const [status,     setStatus]     = useState<ConnectionStatus>(hasApiKey ? 'verified' : 'unchecked')
+  const [maskedKey,  setMaskedKey]  = useState('')
+  const [errorMsg,   setErrorMsg]   = useState<string | null>(null)
+  const [verifying,  setVerifying]  = useState(false)
+  const [verifyMsg,  setVerifyMsg]  = useState<string | null>(null)
 
   const handleSave = async () => {
     if (!apiKey.trim()) return
@@ -66,9 +68,27 @@ export function Configuration() {
     }
   }
 
+  const handleVerify = async () => {
+    setVerifying(true)
+    setVerifyMsg(null)
+    try {
+      const res = await api.post<{ ok: boolean; message: string }>('/config/api-key/verify')
+      setVerifyMsg(res.message)
+      setStatus('verified')
+    } catch (e) {
+      setVerifyMsg(e instanceof ApiError ? e.message : 'Verification failed.')
+      setStatus('failed')
+    } finally {
+      setVerifying(false)
+    }
+  }
+
+  const beaconApiBase = window.BeaconData?.beaconApiBase ?? ''
+
   const siteInfo = [
-    { label: 'Site URL',  value: siteUrl   || '—', icon: <Globe    className="h-4 w-4" /> },
-    { label: 'Site Name', value: siteName  || '—', icon: <Building2 className="h-4 w-4" /> },
+    { label: 'Site URL',          value: siteUrl       || '—', icon: <Globe    className="h-4 w-4" /> },
+    { label: 'Site Name',         value: siteName      || '—', icon: <Building2 className="h-4 w-4" /> },
+    { label: 'Beacon API Endpoint', value: beaconApiBase || '—', icon: <Server   className="h-4 w-4" /> },
     ...(maskedKey || (hasApiKey && !maskedKey)
       ? [{ label: 'API Key', value: maskedKey || '••••••••••••', icon: <Key className="h-4 w-4" /> }]
       : []),
@@ -120,12 +140,26 @@ export function Configuration() {
             <Shield className="h-5 w-5 text-[#390d58]" />
             <div className="flex-1">
               <span className="text-sm text-muted-foreground">Connection Status</span>
+              {hasApiKey && (
+                <button
+                  onClick={handleVerify}
+                  disabled={verifying}
+                  className="ml-2 text-xs text-[#390d58] underline underline-offset-2 hover:text-[#4a1170] disabled:opacity-50"
+                >
+                  {verifying ? 'Checking…' : 'Verify connection'}
+                </button>
+              )}
             </div>
             <Badge variant="outline" className={`gap-1.5 ${statusConfig[status].className}`}>
               {statusConfig[status].icon}
               {statusConfig[status].label}
             </Badge>
           </div>
+          {verifyMsg && (
+            <p className={`text-xs ${status === 'verified' ? 'text-emerald-600' : 'text-red-600'}`}>
+              {verifyMsg}
+            </p>
+          )}
         </CardContent>
       </Card>
 

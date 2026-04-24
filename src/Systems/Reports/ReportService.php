@@ -6,10 +6,13 @@ use DigitalRoyalty\Beacon\Repositories\ReportsRepository;
 
 final class ReportService
 {
+    public const ACTION_REGENERATE_REPORT = 'dr_beacon_regenerate_report';
+
     public function register(): void
     {
         add_action(ReportManager::ACTION_RUN_NEXT, [$this, 'handleRunNext']);
         add_action(ReportManager::ACTION_RUN_REPORT, [$this, 'handleRunReport'], 10, 2);
+        add_action(self::ACTION_REGENERATE_REPORT, [$this, 'handleRegenerateReport'], 10, 2);
     }
 
     public function handleRunNext(): void
@@ -47,4 +50,23 @@ final class ReportService
         $manager->enqueueNext();
     }
 
+    /**
+     * Regenerate a single report without chaining to the next.
+     * Used by the per-report refresh button in the admin UI.
+     */
+    public function handleRegenerateReport(string $type = '', int $version = 0): void
+    {
+        global $wpdb;
+
+        $type    = sanitize_key($type);
+        $version = (int) $version;
+
+        $runner = new ReportRunner(
+            new ReportRegistry(),
+            new ReportsRepository($wpdb),
+            new ReportSubmitter()
+        );
+
+        $runner->run($type, $version);
+    }
 }

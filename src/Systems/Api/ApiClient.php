@@ -79,6 +79,143 @@ final class ApiClient
     }
 
     /**
+     * Publish the plugin's automation catalog to the Beacon API.
+     * Laravel stores this per-project so agents can introspect available tools
+     * without calling back to the WP site.
+     *
+     * @param array<string,mixed> $catalog
+     */
+    public function publishAutomationCatalog(array $catalog): ApiResponse
+    {
+        return $this->request(
+            method: 'POST',
+            path: 'automations/catalog',
+            payload: $catalog,
+            includeClientMeta: false,
+            requireAuth: true,
+            timeout: 30
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Marketing campaigns (proxy to Laravel)
+    // -----------------------------------------------------------------------
+
+    public function listMarketingAgents(): ApiResponse
+    {
+        return $this->request('GET', 'marketing-agents', [], true, true);
+    }
+
+    // ── Channel-centric endpoints (simplified hiring UX) ─────────────────────
+
+    public function listMarketingChannels(): ApiResponse
+    {
+        return $this->request('GET', 'marketing-channels', [], true, true);
+    }
+
+    /** @param array<string, mixed> $payload */
+    public function hireMarketingAgent(array $payload): ApiResponse
+    {
+        return $this->request('POST', 'marketing-channels/hire', $payload, true, true);
+    }
+
+    /** @param array<string, mixed> $payload */
+    public function updateMarketingChannel(string $channel, array $payload): ApiResponse
+    {
+        return $this->request('PUT', "marketing-channels/{$channel}", $payload, true, true);
+    }
+
+    public function unhireMarketingChannel(string $channel): ApiResponse
+    {
+        return $this->request('DELETE', "marketing-channels/{$channel}", [], true, true);
+    }
+
+    /** @param array<int, string> $channels */
+    public function quoteMarketingHire(array $channels): ApiResponse
+    {
+        $query = http_build_query(['channels' => array_values($channels)]);
+
+        return $this->request('GET', 'marketing-channels/hire-quote?'.$query, [], true, true);
+    }
+
+    public function resumeMarketingChannel(string $channel): ApiResponse
+    {
+        return $this->request('POST', "marketing-channels/{$channel}/resume", [], true, true);
+    }
+
+    public function getMarketingChannelLedger(string $channel, int $limit = 50): ApiResponse
+    {
+        return $this->request('GET', "marketing-channels/{$channel}/ledger?limit={$limit}", [], true, true);
+    }
+
+    /** @param array<string, mixed> $payload */
+    public function answerMarketingQuestion(string $channel, array $payload): ApiResponse
+    {
+        return $this->request('POST', "marketing-channels/{$channel}/answers", $payload, true, true);
+    }
+
+    public function listMarketingCampaigns(): ApiResponse
+    {
+        return $this->request('GET', 'marketing-campaigns', [], true, true);
+    }
+
+    /** @param array<string, mixed> $payload */
+    public function createMarketingCampaign(array $payload): ApiResponse
+    {
+        return $this->request('POST', 'marketing-campaigns', $payload, true, true);
+    }
+
+    public function getMarketingCampaign(int $id): ApiResponse
+    {
+        return $this->request('GET', "marketing-campaigns/{$id}", [], true, true);
+    }
+
+    /** @param array<string, mixed> $payload */
+    public function updateMarketingCampaign(int $id, array $payload): ApiResponse
+    {
+        return $this->request('PATCH', "marketing-campaigns/{$id}", $payload, true, true);
+    }
+
+    public function deleteMarketingCampaign(int $id): ApiResponse
+    {
+        return $this->request('DELETE', "marketing-campaigns/{$id}", [], true, true);
+    }
+
+    public function getMarketingCampaignLedger(int $id, int $limit = 50): ApiResponse
+    {
+        return $this->request('GET', "marketing-campaigns/{$id}/ledger?limit={$limit}", [], true, true);
+    }
+
+    /** @param array<string, mixed> $payload */
+    public function updateMarketingCampaignChannel(int $id, string $channel, array $payload): ApiResponse
+    {
+        return $this->request('PUT', "marketing-campaigns/{$id}/channels/{$channel}", $payload, true, true);
+    }
+
+    // ── Automation request pull queue ────────────────────────────────────────
+
+    public function pollAutomationRequests(int $limit = 10): ApiResponse
+    {
+        return $this->request('GET', 'automation-requests/pending?limit='.$limit, [], true, true);
+    }
+
+    public function claimAutomationRequest(string $id): ApiResponse
+    {
+        return $this->request('POST', "automation-requests/{$id}/claim", [], true, true);
+    }
+
+    /** @param array<string, mixed> $result */
+    public function completeAutomationRequest(string $id, array $result): ApiResponse
+    {
+        return $this->request('POST', "automation-requests/{$id}/complete", ['result' => $result], true, true);
+    }
+
+    public function failAutomationRequest(string $id, string $error): ApiResponse
+    {
+        return $this->request('POST', "automation-requests/{$id}/fail", ['error' => $error], true, true);
+    }
+
+    /**
      * Submit a report envelope to the backend.
      *
      * @param array<string,mixed> $envelope
@@ -135,6 +272,85 @@ final class ApiClient
     }
 
     /**
+     * Request image generation for a content piece.
+     *
+     * Sends the content title and body to the Beacon endpoint for AI image
+     * generation. Returns 202 if accepted for async processing.
+     *
+     * @param array<string,mixed> $payload
+     */
+    public function generateImage(array $payload): ApiResponse
+    {
+        return $this->request(
+            method: 'POST',
+            path: 'tools/generate-image',
+            payload: $payload,
+            includeClientMeta: true,
+            requireAuth: true,
+            requestKey: DeferredRequestKeyEnum::GENERATE_IMAGE
+        );
+    }
+
+    /**
+     * Request an image for a specific H2 section within a post.
+     * Uses the same Beacon image endpoint but routes to a different
+     * deferred handler that places the image inline (not as featured).
+     *
+     * @param array<string,mixed> $payload
+     */
+    public function generateContentEnrichmentImage(array $payload): ApiResponse
+    {
+        return $this->request(
+            method: 'POST',
+            path: 'tools/generate-image',
+            payload: $payload,
+            includeClientMeta: true,
+            requireAuth: true,
+            requestKey: DeferredRequestKeyEnum::CONTENT_ENRICHMENT_IMAGE
+        );
+    }
+
+    /**
+     * Request news article generation for a given topic and niche.
+     *
+     * Triggers a two-step AI chain: web search + fetch → news report rewrite.
+     * Returns 202 if accepted for async processing.
+     *
+     * @param array<string,mixed> $payload
+     */
+    public function generateNewsArticle(array $payload): ApiResponse
+    {
+        return $this->request(
+            method: 'POST',
+            path: 'tools/news-article/generate',
+            payload: $payload,
+            includeClientMeta: true,
+            requireAuth: true,
+            requestKey: DeferredRequestKeyEnum::NEWS_ARTICLE_GENERATE
+        );
+    }
+
+    /**
+     * Request social media post generation for a content piece.
+     *
+     * Sends source content and target platforms to the Beacon endpoint.
+     * Returns 202 if accepted for async processing.
+     *
+     * @param array<string,mixed> $payload
+     */
+    public function generateSocialPosts(array $payload): ApiResponse
+    {
+        return $this->request(
+            method: 'POST',
+            path: 'tools/social-share/generate',
+            payload: $payload,
+            includeClientMeta: true,
+            requireAuth: true,
+            requestKey: DeferredRequestKeyEnum::SOCIAL_SHARE_GENERATE
+        );
+    }
+
+    /**
      * Transient content areas analysis helper.
      *
      * Sends the full site sitemap (pages tree + collections) to the Beacon
@@ -146,14 +362,71 @@ final class ApiClient
      *
      * @param array<string, mixed> $sitemap
      */
-    public function analyseContentAreas(array $sitemap): ApiResponse
+    public function analyseContentAreas(array $structure): ApiResponse
     {
         return $this->request(
             method: 'POST',
             path: 'tools/analyse-content-areas',
-            payload: ['sitemap' => $sitemap],
+            payload: ['sitemap' => $structure],
             includeClientMeta: true,
-            requireAuth: true
+            requireAuth: true,
+            timeout: 60
+        );
+    }
+
+    /**
+     * Content gaps analyser — used by GapAnalysisAutomation::invoke().
+     *
+     * @param array<string, mixed> $payload  { inventory, content_areas?, profile?, voice?, focus? }
+     */
+    public function analyseContentGaps(array $payload): ApiResponse
+    {
+        return $this->request(
+            method: 'POST',
+            path: 'tools/analyse-content-gaps',
+            payload: $payload,
+            includeClientMeta: true,
+            requireAuth: true,
+            timeout: 90
+        );
+    }
+
+    // ── Agent-triggered tool dispatch helpers ─────────────────────────────────
+
+    /**
+     * Dispatch a Laravel tool endpoint WITHOUT auto-enqueuing to the
+     * background deferred runner. Used by automation invoke() methods that
+     * poll the run inline so they can return a synchronous InvocationResult.
+     *
+     * @param array<string, mixed> $payload
+     */
+    public function dispatchToolRaw(string $path, array $payload): ApiResponse
+    {
+        return $this->request(
+            method: 'POST',
+            path: $path,
+            payload: $payload,
+            includeClientMeta: true,
+            requireAuth: true,
+            timeout: 30,
+            autoEnqueueDeferred: false,
+        );
+    }
+
+    /**
+     * Fetch the current state of a tool run. 202 while running, 200 on
+     * completion (with outputs), 422 on failure.
+     */
+    public function pollToolRun(string $pollPath): ApiResponse
+    {
+        return $this->request(
+            method: 'GET',
+            path: $pollPath,
+            payload: [],
+            includeClientMeta: false,
+            requireAuth: true,
+            timeout: 15,
+            autoEnqueueDeferred: false,
         );
     }
 
@@ -176,7 +449,8 @@ final class ApiClient
             path: 'tools/identify-key-pages',
             payload: ['pages' => $pages, 'max' => $max],
             includeClientMeta: true,
-            requireAuth: true
+            requireAuth: true,
+            timeout: 60
         );
     }
 
@@ -199,7 +473,42 @@ final class ApiClient
             path: 'tools/analyse-site-profile',
             payload: ['samples' => $samples],
             includeClientMeta: true,
-            requireAuth: true
+            requireAuth: true,
+            timeout: 60
+        );
+    }
+
+    /**
+     * Analyse content samples to derive voice and tone profile.
+     *
+     * @param array<string, mixed> $samples
+     */
+    public function analyseVoiceTone(array $samples): ApiResponse
+    {
+        return $this->request(
+            method: 'POST',
+            path: 'tools/analyse-voice-tone',
+            payload: ['samples' => $samples],
+            includeClientMeta: true,
+            requireAuth: true,
+            timeout: 60
+        );
+    }
+
+    /**
+     * Analyse site context to derive imagery direction preferences.
+     *
+     * @param array<string, mixed> $samples
+     */
+    public function analyseImageryDirection(array $samples): ApiResponse
+    {
+        return $this->request(
+            method: 'POST',
+            path: 'tools/analyse-imagery-direction',
+            payload: ['samples' => $samples],
+            includeClientMeta: true,
+            requireAuth: true,
+            timeout: 60
         );
     }
 
@@ -231,17 +540,23 @@ final class ApiClient
      *
      * Laravel exchanges the code for tokens and stores them against the project.
      */
-    public function completeOAuth(string $provider, string $code, string $state, string $callbackUrl): ApiResponse
+    public function completeOAuth(string $provider, string $code, string $state, string $callbackUrl, ?string $codeVerifier = null): ApiResponse
     {
+        $payload = [
+            'provider'     => $provider,
+            'code'         => $code,
+            'state'        => $state,
+            'callback_url' => $callbackUrl,
+        ];
+
+        if ($codeVerifier !== null && $codeVerifier !== '') {
+            $payload['code_verifier'] = $codeVerifier;
+        }
+
         return $this->request(
             method: 'POST',
             path: 'oauth/callback',
-            payload: [
-                'provider'     => $provider,
-                'code'         => $code,
-                'state'        => $state,
-                'callback_url' => $callbackUrl,
-            ],
+            payload: $payload,
             includeClientMeta: true,
             requireAuth: true
         );
@@ -260,6 +575,26 @@ final class ApiClient
             payload: [],
             includeClientMeta: true,
             requireAuth: true
+        );
+    }
+
+    /**
+     * Publish a social post to a connected platform.
+     *
+     * Laravel holds the OAuth tokens and makes the API call to the platform.
+     * Tokens never leave the Beacon server.
+     *
+     * @param array{platform: string, text: string} $payload
+     */
+    public function publishSocialPost(array $payload): ApiResponse
+    {
+        return $this->request(
+            method: 'POST',
+            path: 'social/publish',
+            payload: $payload,
+            includeClientMeta: true,
+            requireAuth: true,
+            timeout: 30
         );
     }
 
@@ -333,7 +668,9 @@ final class ApiClient
         array $payload = [],
         bool $includeClientMeta = true,
         bool $requireAuth = true,
-        ?string $requestKey = null
+        ?string $requestKey = null,
+        int $timeout = 15,
+        bool $autoEnqueueDeferred = true
     ): ApiResponse {
         $logger = Services::logger();
 
@@ -375,7 +712,7 @@ final class ApiClient
         }
 
         $args = [
-            'timeout'     => 15,
+            'timeout'     => $timeout,
             'redirection' => 3,
             'method'      => $methodUpper,
             'headers'     => $headers,
@@ -505,6 +842,19 @@ final class ApiClient
                     'run_id' => isset($data['run_id']) && is_string($data['run_id']) ? $data['run_id'] : null,
                 ])
             );
+
+            // Caller wants the raw 202 back (e.g. agent-turn automations that
+            // will poll inline instead of using the background deferred runner).
+            if (! $autoEnqueueDeferred) {
+                return new ApiResponse(
+                    ok: true,
+                    code: 202,
+                    message: null,
+                    data: $data,
+                    retryAfterSeconds: $retryAfterSeconds,
+                    location: $location
+                );
+            }
 
             if (!$requestKey) {
                 $logger->info(

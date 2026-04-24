@@ -45,13 +45,14 @@ final class OAuthCallbackController
             return;
         }
 
-        $provider = $storedProvider;
+        $provider     = $storedProvider;
+        $codeVerifier = is_array($stored) ? ($stored['code_verifier'] ?? null) : null;
 
         delete_option(ConfigurationEnum::OPTION_STATE);
 
         $callbackUrl = rest_url('beacon/v1/oauth/callback');
 
-        $result = Services::apiClient()->completeOAuth($provider, $code, $state, $callbackUrl);
+        $result = Services::apiClient()->completeOAuth($provider, $code, $state, $callbackUrl, $codeVerifier);
 
         if (!$result->ok) {
             $this->redirectToConfiguration(false, $result->message ?? 'OAuth connection failed.');

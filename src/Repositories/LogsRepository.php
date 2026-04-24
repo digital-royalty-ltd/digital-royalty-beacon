@@ -38,6 +38,13 @@ final class LogsRepository
         );
     }
 
+    public function deleteAll(): void
+    {
+        $table = $this->wpdb->prefix . LogTableEnum::TABLE_SLUG;
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $this->wpdb->query("TRUNCATE TABLE {$table}");
+    }
+
     /**
      * @param array{per_page?:int,page?:int,scope?:string|null} $args
      * @return array{rows: array<int, array<string,mixed>>, total: int}

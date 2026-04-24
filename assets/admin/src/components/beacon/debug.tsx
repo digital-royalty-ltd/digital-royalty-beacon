@@ -22,6 +22,7 @@ import {
   RefreshCw, RotateCcw, AlertTriangle, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { api } from '@/lib/api'
+import { HeartbeatDiagnostics } from '@/components/beacon/HeartbeatDiagnostics'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -163,8 +164,8 @@ export function Debug() {
   const [schedulerPage,    setSchedulerPage]    = useState(1)
   const [loadingScheduler, setLoadingScheduler] = useState(true)
 
-  const [resetting,        setResetting]        = useState<string | null>(null)
-  const [sendingHeartbeat, setSendingHeartbeat] = useState(false)
+  const [resetting,     setResetting]     = useState<string | null>(null)
+  const [disconnecting, setDisconnecting] = useState(false)
 
   // ── Fetch functions ──────────────────────────────────────────────────────
 
@@ -242,8 +243,10 @@ export function Debug() {
       await api.post('/debug/reset', { action })
       setDeferredPage(1)
       setSchedulerPage(1)
+      setLogsPage(1)
       fetchDeferred(1)
       fetchScheduler(1)
+      fetchLogs(scopeFilter, 1)
       api.get<DebugInfo>('/debug').then(setDebugInfo).catch(() => null)
     } catch {
       alert('Reset failed.')
@@ -252,15 +255,18 @@ export function Debug() {
     }
   }
 
-  const handleSendHeartbeat = async () => {
-    setSendingHeartbeat(true)
+  const handleDisconnect = async () => {
+    if (!confirm('Disconnect Beacon and remove API key? This cannot be undone.')) return
+    setDisconnecting(true)
     try {
-      await api.post('/debug/send-heartbeat', {})
-      api.get<DebugInfo>('/debug').then(setDebugInfo).catch(() => null)
-    } catch {
-      alert('Heartbeat failed — check the log viewer below.')
+      await api.delete('/config/api-key')
+      if (window.BeaconData) {
+        window.BeaconData.hasApiKey   = false
+        window.BeaconData.isConnected = false
+      }
+      window.location.reload()
     } finally {
-      setSendingHeartbeat(false)
+      setDisconnecting(false)
     }
   }
 
@@ -308,22 +314,11 @@ export function Debug() {
               </div>
             </div>
           </div>
-          <div className="mt-4">
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5 border-[#390d58]/20 text-[#390d58]"
-              onClick={handleSendHeartbeat}
-              disabled={sendingHeartbeat}
-            >
-              {sendingHeartbeat
-                ? <Loader2 className="h-4 w-4 animate-spin" />
-                : <Activity className="h-4 w-4" />}
-              Send Heartbeat Now
-            </Button>
-          </div>
         </CardContent>
       </Card>
+
+      {/* Beacon diagnostics — heartbeat + catalog publish trace (replaces the old quick "Send Heartbeat Now" button) */}
+      <HeartbeatDiagnostics />
 
       {/* Deferred Requests Table */}
       <Card className="border-[#390d58]/20 overflow-hidden">
@@ -520,6 +515,11 @@ export function Debug() {
                   <SelectItem value="admin">Admin</SelectItem>
                 </SelectContent>
               </Select>
+              <Button variant="outline" size="sm" className="gap-1.5 border-[#390d58]/20 text-[#390d58]"
+                onClick={() => fetchLogs(scopeFilter, logsPage)} disabled={loadingLogs}>
+                {loadingLogs ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                Refresh
+              </Button>
               <Button
                 variant="outline" size="sm"
                 className="gap-1.5 text-destructive hover:bg-destructive hover:text-white hover:border-destructive"
@@ -612,17 +612,18 @@ export function Debug() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {[
-              { action: 'clear-reports',  label: 'Clear Reports',        desc: 'Delete all report snapshots and content-area maps' },
-              { action: 'clear-deferred', label: 'Clear Deferred Queue', desc: 'Delete all deferred request rows' },
-              { action: 'unschedule',     label: 'Unschedule Jobs',      desc: 'Cancel all pending Action Scheduler actions' },
-              { action: 'full-reset',     label: 'Full Reset',           desc: 'Clear reports, deferred, scheduler, and onboarding state' },
+              { action: 'clear-reports',        label: 'Clear Reports',          desc: 'Delete all report snapshots and content-area maps' },
+              { action: 'clear-deferred',       label: 'Clear Deferred Queue',   desc: 'Delete all deferred request rows' },
+              { action: 'clear-action-history', label: 'Clear Action History',   desc: 'Purge completed Action Scheduler records' },
+              { action: 'unschedule',           label: 'Unschedule Jobs',        desc: 'Cancel pending actions and clear history' },
+              { action: 'full-reset',           label: 'Full Reset',             desc: 'Clear everything: reports, logs, API keys, deferred, scheduler' },
             ].map(({ action, label, desc }) => (
               <button
                 key={action}
                 onClick={() => handleReset(action, label)}
-                disabled={resetting !== null}
+                disabled={resetting !== null || disconnecting}
                 className="text-left rounded-xl border border-red-200 px-4 py-3 hover:border-red-400 hover:bg-red-50 transition-all disabled:opacity-50"
               >
                 <div className="flex items-center gap-2 mb-1">
@@ -635,6 +636,28 @@ export function Debug() {
               </button>
             ))}
           </div>
+
+          {(window.BeaconData?.hasApiKey ?? false) && (
+            <div className="mt-4 pt-4 border-t border-red-200">
+              <div className="flex items-center justify-between p-4 rounded-xl bg-red-50 border border-red-200">
+                <div>
+                  <p className="text-sm font-medium text-red-700">Disconnect &amp; Clear Data</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Remove API key, cancel all jobs, and reload</p>
+                </div>
+                <Button
+                  variant="destructive"
+                  className="gap-2 shadow-md shadow-red-500/20"
+                  onClick={handleDisconnect}
+                  disabled={disconnecting || resetting !== null}
+                >
+                  {disconnecting
+                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                    : <Trash2 className="h-4 w-4" />}
+                  Disconnect
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 

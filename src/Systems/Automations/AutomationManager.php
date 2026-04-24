@@ -48,7 +48,7 @@ final class AutomationManager
                 'label'        => ReportTypeEnum::label($dep->reportType),
                 'max_age_days' => $dep->maxAgeDays,
                 'status'       => $status,
-                'submitted_at' => $this->safeString($row['submitted_at'] ?? null),
+                'submitted_at' => $this->safeString($row['submitted_at'] ?? $row['generated_at'] ?? null),
             ];
         }
 
@@ -116,7 +116,8 @@ final class AutomationManager
      */
     private function resolveDependencyStatus(?array $row, ?int $maxAgeDays): string
     {
-        if (!$row || ($row['status'] ?? '') !== 'submitted') {
+        $status = $row['status'] ?? '';
+        if (!$row || !in_array($status, ['generated', 'submitted'], true)) {
             return 'missing';
         }
 
@@ -124,13 +125,14 @@ final class AutomationManager
             return 'ok';
         }
 
-        $submittedAt = $row['submitted_at'] ?? null;
+        // Use submitted_at if available, otherwise fall back to generated_at.
+        $dateField = $row['submitted_at'] ?? $row['generated_at'] ?? null;
 
-        if (!is_string($submittedAt) || trim($submittedAt) === '') {
+        if (!is_string($dateField) || trim($dateField) === '') {
             return 'missing';
         }
 
-        $ts = strtotime($submittedAt . ' UTC');
+        $ts = strtotime($dateField . ' UTC');
 
         if ($ts === false) {
             return 'missing';
