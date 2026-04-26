@@ -3,6 +3,8 @@
 namespace DigitalRoyalty\Beacon\Systems\Reports;
 
 use DigitalRoyalty\Beacon\Repositories\ReportsRepository;
+use DigitalRoyalty\Beacon\Services\Services;
+use DigitalRoyalty\Beacon\Support\Enums\Logging\LogScopeEnum;
 
 final class ReportManager
 {
@@ -29,9 +31,21 @@ final class ReportManager
     {
         update_option(self::OPTION_STATUS, self::STATUS_RUNNING, false);
 
-        foreach ($this->registry->required() as $report) {
+        $required = iterator_to_array($this->registry->required(), false);
+        foreach ($required as $report) {
             $this->repository->upsertPending($report->type(), $report->version());
         }
+
+        Services::logger()->info(
+            LogScopeEnum::REPORTS,
+            'reports_start',
+            'Report run started.',
+            [
+                'required_count' => count($required),
+                'types' => array_map(fn ($r) => $r->type(), $required),
+                'user_id' => get_current_user_id() ?: null,
+            ]
+        );
 
         $this->enqueueNext();
     }
@@ -41,6 +55,16 @@ final class ReportManager
         if (!function_exists('as_enqueue_async_action')) {
             update_option(self::OPTION_STATUS, self::STATUS_FAILED, false);
             update_option('dr_beacon_reports_last_error', 'Action Scheduler not available.', false);
+
+            // Without Action Scheduler the entire report pipeline can't
+            // advance — operator needs to know loudly, not see "failed"
+            // in the UI with no clue why.
+            Services::logger()->error(
+                LogScopeEnum::REPORTS,
+                'reports_action_scheduler_missing',
+                'Action Scheduler is not available — report pipeline halted.',
+                ['where' => 'enqueueNext']
+            );
             return;
         }
 
@@ -64,12 +88,24 @@ final class ReportManager
             );
 
             if (!$existing || ($existing['status'] ?? '') !== 'submitted') {
+                Services::logger()->info(
+                    LogScopeEnum::REPORTS,
+                    'reports_next_enqueued',
+                    "Enqueuing next report: {$report->type()} v{$report->version()}.",
+                    ['type' => $report->type(), 'version' => $report->version()]
+                );
                 $this->enqueueReport($report->type(), $report->version());
                 return;
             }
         }
 
         update_option(self::OPTION_STATUS, self::STATUS_COMPLETED, false);
+
+        Services::logger()->info(
+            LogScopeEnum::REPORTS,
+            'reports_run_complete',
+            'All required reports submitted — report run complete.'
+        );
     }
 
     public function enqueueReport(string $type, int $version): void
@@ -77,6 +113,13 @@ final class ReportManager
         if (!function_exists('as_enqueue_async_action')) {
             update_option(self::OPTION_STATUS, self::STATUS_FAILED, false);
             update_option('dr_beacon_reports_last_error', 'Action Scheduler not available.', false);
+
+            Services::logger()->error(
+                LogScopeEnum::REPORTS,
+                'reports_action_scheduler_missing',
+                'Action Scheduler is not available — report pipeline halted.',
+                ['where' => 'enqueueReport', 'type' => $type, 'version' => $version]
+            );
             return;
         }
 

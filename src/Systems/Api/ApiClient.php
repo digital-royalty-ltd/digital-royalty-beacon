@@ -871,7 +871,9 @@ final class ApiClient
         $durationMs = (int) round((microtime(true) - $t0) * 1000);
 
         if (is_wp_error($response)) {
-            $logger->info(
+            // Transport failure (DNS, timeout, TLS, etc) — operator can't tell
+            // an outage from a misconfiguration without this.
+            $logger->warning(
                 LogScopeEnum::API,
                 LogEventEnum::API_REQUEST_WP_ERROR,
                 'API request failed (WP_Error).',
@@ -897,29 +899,38 @@ final class ApiClient
         $code = (int) wp_remote_retrieve_response_code($response);
         $body = (string) wp_remote_retrieve_body($response);
 
-        $logger->info(
+        // Receive log: severity tracks status. 5xx indicates a Laravel-side
+        // problem; 4xx may be a real auth / validation issue or a routine
+        // not-found. Logging at the right level means the debug viewer's
+        // severity filter actually surfaces real problems.
+        $receiveLevel = $code >= 500 ? 'error' : ($code >= 400 ? 'warning' : 'info');
+        $receiveContext = array_merge($logContext, [
+            'duration_ms' => $durationMs,
+            'status_code' => $code,
+            'retry_after_seconds' => $retryAfterSeconds,
+            'has_location' => (bool) $location,
+            'body_bytes' => strlen($body),
+        ]);
+        if ($code >= 400) {
+            $receiveContext['body_preview'] = substr($body, 0, 480);
+        }
+        $logger->{$receiveLevel}(
             LogScopeEnum::API,
             ($code >= 200 && $code < 300) ? LogEventEnum::API_REQUEST_OK : LogEventEnum::API_REQUEST_HTTP_ERROR,
             'API response received.',
-            array_merge($logContext, [
-                'duration_ms' => $durationMs,
-                'status_code' => $code,
-                'retry_after_seconds' => $retryAfterSeconds,
-                'has_location' => (bool) $location,
-                'body_bytes' => strlen($body),
-            ])
+            $receiveContext
         );
 
         $json = $body !== '' ? json_decode($body, true) : [];
         if ($body !== '' && !is_array($json)) {
-            $logger->info(
+            $logger->warning(
                 LogScopeEnum::API,
                 LogEventEnum::API_RESPONSE_INVALID_JSON,
                 'API response invalid JSON.',
                 array_merge($logContext, [
                     'duration_ms' => $durationMs,
                     'status_code' => $code,
-                    'body_prefix' => substr($body, 0, 200),
+                    'body_prefix' => substr($body, 0, 480),
                 ])
             );
 
@@ -936,7 +947,7 @@ final class ApiClient
 
         // Auth failures
         if ($code === 401 || $code === 403) {
-            $logger->info(
+            $logger->warning(
                 LogScopeEnum::API,
                 LogEventEnum::API_REQUEST_UNAUTHORIZED,
                 'API request unauthorized.',
@@ -986,10 +997,10 @@ final class ApiClient
             }
 
             if (!$requestKey) {
-                $logger->info(
+                $logger->warning(
                     LogScopeEnum::API,
                     LogEventEnum::API_REQUEST_FAILED,
-                    'Deferred request key missing for 202 response.',
+                    'Deferred request key missing for 202 response — caller did not pass one. The deferred work cannot be tracked.',
                     $logContext
                 );
 
@@ -1016,10 +1027,10 @@ final class ApiClient
             }
 
             if (!$pollPath) {
-                $logger->info(
+                $logger->warning(
                     LogScopeEnum::API,
                     LogEventEnum::API_REQUEST_FAILED,
-                    'API returned 202 but no Location or poll_path.',
+                    'API returned 202 but no Location or poll_path — Laravel response is malformed.',
                     array_merge($logContext, [
                         'retry_after_seconds' => $retryAfterSeconds,
                         'location' => $location,
@@ -1050,10 +1061,10 @@ final class ApiClient
                 );
 
                 if ($deferredId <= 0) {
-                    Services::logger()->info(
+                    Services::logger()->error(
                         LogScopeEnum::API,
                         LogEventEnum::API_DEFERRED_ENQUEUE_FAILED,
-                        'Deferred enqueue returned invalid insert id.',
+                        'Deferred enqueue returned invalid insert id — the queue is broken; this work will not be tracked.',
                         [
                             'request_key' => $requestKey,
                             'poll_path' => $pollPath,
@@ -1084,10 +1095,10 @@ final class ApiClient
                     ])
                 );
             } catch (\Throwable $e) {
-                $logger->info(
+                $logger->error(
                     LogScopeEnum::API,
                     LogEventEnum::API_DEFERRED_ENQUEUE_FAILED,
-                    'Deferred enqueue failed.',
+                    'Deferred enqueue failed — the work was accepted by Laravel but cannot be tracked locally.',
                     array_merge($logContext, [
                         'poll_path' => $pollPath,
                         'external_id' => $externalId,
@@ -1143,14 +1154,20 @@ final class ApiClient
         }
 
         if ($code < 200 || $code >= 300) {
-            $logger->info(
+            // 5xx is server-side breakage; 4xx is usually a request issue
+            // we caused. Both want the parsed `message` and the body preview
+            // visible in the log so the failure can be diagnosed in place.
+            $level = $code >= 500 ? 'error' : 'warning';
+            $logger->{$level}(
                 LogScopeEnum::API,
                 LogEventEnum::API_REQUEST_HTTP_ERROR,
-                'API returned non-2xx.',
+                "API returned non-2xx ({$code}).",
                 array_merge($logContext, [
                     'duration_ms' => $durationMs,
                     'status_code' => $code,
                     'message' => isset($data['message']) && is_string($data['message']) ? $data['message'] : null,
+                    'body_preview' => substr($body, 0, 480),
+                    'errors' => isset($data['errors']) && is_array($data['errors']) ? $data['errors'] : null,
                 ])
             );
 

@@ -3,6 +3,7 @@
 namespace DigitalRoyalty\Beacon\Rest\Admin\Controllers;
 
 use DigitalRoyalty\Beacon\Services\Services;
+use DigitalRoyalty\Beacon\Support\Enums\Logging\LogScopeEnum;
 use WP_REST_Request;
 use WP_REST_Response;
 
@@ -38,14 +39,34 @@ final class InsightsController
         // Try fetching the live registry from Laravel first so newly-shipped
         // signals appear in the hub without a plugin redeploy. Fall back to
         // the local catalogue if the API is unreachable.
+        $reason = null;
+        $statusCode = null;
+
         try {
             $res = Services::apiClient()->getSignalsRegistry();
             if ($res->isOk() && is_array($res->data['signals'] ?? null)) {
                 return new WP_REST_Response(['signals' => $res->data['signals'], 'source' => 'laravel'], 200);
             }
+            // Got a response but it wasn't usable — capture the status for the log.
+            $statusCode = $res->code;
+            $reason = $res->message ?? 'API returned no signals.';
         } catch (\Throwable $e) {
-            // fall through to fallback
+            $reason = $e->getMessage();
         }
+
+        // Falling back to the static catalogue means stale data — operators
+        // need to know whenever this happens. Logged at info because some
+        // failures are expected (no API key configured yet, intermittent
+        // network), not at warning.
+        Services::logger()->info(
+            LogScopeEnum::API,
+            'insights_registry_fallback',
+            'Insights registry fell back to local static catalogue (Laravel fetch unsuccessful).',
+            [
+                'status_code' => $statusCode,
+                'reason' => $reason,
+            ]
+        );
 
         return new WP_REST_Response(['signals' => $this->signalCatalogue(), 'source' => 'fallback'], 200);
     }

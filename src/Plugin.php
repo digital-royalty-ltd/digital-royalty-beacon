@@ -31,7 +31,10 @@ use DigitalRoyalty\Beacon\Repositories\RedirectsRepository;
 use DigitalRoyalty\Beacon\Repositories\ReportsRepository;
 use DigitalRoyalty\Beacon\Repositories\SchedulerRepository;
 use DigitalRoyalty\Beacon\Rest\Admin\AdminRestService;
+use DigitalRoyalty\Beacon\Rest\Observability\RestErrorLogger;
 use DigitalRoyalty\Beacon\Rest\RestService;
+use DigitalRoyalty\Beacon\Services\Services;
+use DigitalRoyalty\Beacon\Support\Enums\Logging\LogScopeEnum;
 use DigitalRoyalty\Beacon\Support\Enums\Deferred\DeferredRequestKeyEnum;
 use DigitalRoyalty\Beacon\Systems\Deferred\DeferredCompletionRouter;
 use DigitalRoyalty\Beacon\Systems\Deferred\DeferredRequestRunner;
@@ -111,22 +114,55 @@ final class Plugin
 
     public static function activate(): void
     {
-        self::installTables();
+        $installResult = self::installTables();
+
+        // Log activation outcome — without this, an activation that ends with
+        // a broken schema looks identical to a healthy activation. The logger
+        // call is best-effort because the logs table itself may have failed
+        // to install.
+        try {
+            $level = $installResult['failed'] === [] ? 'info' : 'error';
+            $message = $installResult['failed'] === []
+                ? 'Plugin activated; schema installed.'
+                : 'Plugin activation completed with schema errors — some tables did not install.';
+
+            Services::logger()->{$level}(
+                LogScopeEnum::SYSTEM,
+                'plugin_activated',
+                $message,
+                $installResult
+            );
+        } catch (\Throwable) {
+            // Logger may itself be unusable if LogsTable failed to install;
+            // do not let activation crash because of logging.
+        }
+
         \DigitalRoyalty\Beacon\Systems\Heartbeat\HeartbeatScheduler::onActivation();
         AutomationRequestPoller::onActivation();
     }
 
     public static function deactivate(): void
     {
+        $cleared = [];
+        $missing = [];
+
         \DigitalRoyalty\Beacon\Systems\Heartbeat\HeartbeatScheduler::onDeactivation();
+        $cleared[] = 'heartbeat';
+
         AutomationRequestPoller::onDeactivation();
+        $cleared[] = 'automation_request_poller';
+
         AutomationScheduler::unschedule();
+        $cleared[] = 'automation_scheduler';
 
         // Clear deferred runner cron
         $deferredHook = \DigitalRoyalty\Beacon\Systems\Deferred\DeferredRequestRunner::CRON_HOOK;
         $ts = wp_next_scheduled($deferredHook);
         if ($ts) {
             wp_unschedule_event($ts, $deferredHook);
+            $cleared[] = 'deferred_request_runner';
+        } else {
+            $missing[] = 'deferred_request_runner';
         }
 
         // Cancel all pending Action Scheduler actions in our group
@@ -134,6 +170,23 @@ final class Plugin
             as_unschedule_all_actions(\DigitalRoyalty\Beacon\Systems\Reports\ReportManager::ACTION_RUN_NEXT, [], 'dr-beacon');
             as_unschedule_all_actions(\DigitalRoyalty\Beacon\Systems\Reports\ReportManager::ACTION_RUN_REPORT, [], 'dr-beacon');
             as_unschedule_all_actions(\DigitalRoyalty\Beacon\Systems\Reports\ReportService::ACTION_REGENERATE_REPORT, [], 'dr-beacon');
+            $cleared[] = 'action_scheduler_reports';
+        } else {
+            $missing[] = 'action_scheduler_reports';
+        }
+
+        // Log the deactivation summary so ghost crons after a botched
+        // upgrade are auditable. Best-effort because the logs table may
+        // already be uninstalled by the time this runs in some flows.
+        try {
+            Services::logger()->info(
+                LogScopeEnum::SYSTEM,
+                'plugin_deactivated',
+                'Plugin deactivated; scheduled hooks cleared.',
+                ['cleared' => $cleared, 'missing' => $missing]
+            );
+        } catch (\Throwable) {
+            // ignore — deactivation must always succeed.
         }
     }
 
@@ -143,18 +196,45 @@ final class Plugin
             return;
         }
 
+        // Best-effort: dbDelta is idempotent on healthy schemas, and we
+        // already log full outcomes from activate(). Silent here so we don't
+        // log on every admin page view.
         self::installTables();
     }
 
-    private static function installTables(): void
+    /**
+     * Install or upgrade all custom tables. Captures per-table failures so
+     * activate() can log a complete picture instead of failing on the first
+     * exception (a half-installed schema is harder to diagnose than knowing
+     * exactly which tables failed and why).
+     *
+     * @return array{installed: list<string>, failed: array<string, string>}
+     */
+    private static function installTables(): array
     {
-        LogsTable::install();
-        ReportsTable::install();
-        DeferredRequestsTable::install();
-        RedirectsTable::install();
-        FourOhFourLogsTable::install();
-        ApiKeysTable::install();
-        ApiLogsTable::install();
+        $tables = [
+            'logs' => LogsTable::class,
+            'reports' => ReportsTable::class,
+            'deferred_requests' => DeferredRequestsTable::class,
+            'redirects' => RedirectsTable::class,
+            'four_oh_four_logs' => FourOhFourLogsTable::class,
+            'api_keys' => ApiKeysTable::class,
+            'api_logs' => ApiLogsTable::class,
+        ];
+
+        $installed = [];
+        $failed = [];
+
+        foreach ($tables as $key => $class) {
+            try {
+                $class::install();
+                $installed[] = $key;
+            } catch (\Throwable $e) {
+                $failed[$key] = $e->getMessage();
+            }
+        }
+
+        return ['installed' => $installed, 'failed' => $failed];
     }
 
     private function registerServices(): void
@@ -213,6 +293,7 @@ final class Plugin
     private function registerRest(): void
     {
         (new RestService())->register();
+        (new RestErrorLogger())->register();
 
         global $wpdb;
         (new AdminRestService(

@@ -2,7 +2,9 @@
 
 namespace DigitalRoyalty\Beacon\Systems\Updater;
 
+use DigitalRoyalty\Beacon\Services\Services;
 use DigitalRoyalty\Beacon\Support\Enums\Admin\UpdateChannelEnum;
+use DigitalRoyalty\Beacon\Support\Enums\Logging\LogScopeEnum;
 
 /**
  * Hooks into WordPress's update system to deliver experimental releases
@@ -373,13 +375,48 @@ if you encounter any.</p>';
             ],
         ]);
 
-        if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) {
+        // A broken update channel looks identical to "no updates available"
+        // without a log — the user only finds out by manually checking the
+        // GitHub releases page. Log so it's actionable.
+        if (is_wp_error($response)) {
+            Services::logger()->warning(
+                LogScopeEnum::SYSTEM,
+                'updater_fetch_failed',
+                'GitHub releases fetch failed (transport error). Update check will use stale or empty data.',
+                [
+                    'url' => $url,
+                    'error' => $response->get_error_message(),
+                ]
+            );
+            return null;
+        }
+
+        $code = (int) wp_remote_retrieve_response_code($response);
+        if ($code !== 200) {
+            // 403 most often = rate limited; 404 = repo private/renamed.
+            // Either way the operator wants to know.
+            Services::logger()->warning(
+                LogScopeEnum::SYSTEM,
+                'updater_fetch_failed',
+                "GitHub releases fetch returned {$code}. Update check will use stale or empty data.",
+                [
+                    'url' => $url,
+                    'status' => $code,
+                    'body_preview' => mb_substr((string) wp_remote_retrieve_body($response), 0, 240),
+                ]
+            );
             return null;
         }
 
         $body = json_decode(wp_remote_retrieve_body($response), true);
 
         if (!is_array($body)) {
+            Services::logger()->warning(
+                LogScopeEnum::SYSTEM,
+                'updater_fetch_failed',
+                'GitHub releases fetch returned 200 but response body was not valid JSON.',
+                ['url' => $url]
+            );
             return null;
         }
 

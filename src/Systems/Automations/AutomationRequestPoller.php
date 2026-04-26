@@ -3,7 +3,6 @@
 namespace DigitalRoyalty\Beacon\Systems\Automations;
 
 use DigitalRoyalty\Beacon\Services\Services;
-use DigitalRoyalty\Beacon\Support\Enums\Logging\LogEventEnum;
 use DigitalRoyalty\Beacon\Support\Enums\Logging\LogScopeEnum;
 use DigitalRoyalty\Beacon\Systems\Actions\ActionInvokerRegistry;
 use DigitalRoyalty\Beacon\Systems\Api\ApiClient;
@@ -145,7 +144,22 @@ final class AutomationRequestPoller
                 $result['processed'][] = $this->processOne($client, $request);
             }
         } catch (\Throwable $e) {
-            $this->logError("Automation poll tick failed: {$e->getMessage()}");
+            // Tick-level crash. Without rich context the operator sees "tick
+            // failed" with no clue what threw — capture exception class +
+            // file:line so it's actionable.
+            Services::logger()->error(
+                LogScopeEnum::BACKGROUND,
+                'automation_poll_tick_failed',
+                "Automation poll tick failed: {$e->getMessage()}",
+                [
+                    'exception' => get_class($e),
+                    'message' => $e->getMessage(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                    'pending_count' => $result['pending_count'] ?? 0,
+                    'processed_count' => is_array($result['processed'] ?? null) ? count($result['processed']) : 0,
+                ]
+            );
             $result['poll_message'] = 'Exception: '.$e->getMessage();
         }
 
@@ -167,6 +181,7 @@ final class AutomationRequestPoller
         $kind          = (string) ($request['kind'] ?? 'workflow');
         $parameters    = is_array($request['parameters'] ?? null) ? $request['parameters'] : [];
         $agentKey      = $request['agent_id'] ?? null;
+        $logger        = Services::logger();
 
         $trace = ['id' => $id, 'key' => $automationKey, 'action' => 'skipped', 'message' => null];
 
@@ -175,6 +190,12 @@ final class AutomationRequestPoller
         if ($kind === 'action') {
             $invoker = $this->actions()->find($automationKey);
             if (! $invoker) {
+                $logger->warning(
+                    LogScopeEnum::BACKGROUND,
+                    'invoker_unknown_action',
+                    "Pending action '{$automationKey}' rejected: no invoker registered.",
+                    ['request_id' => $id, 'kind' => $kind, 'automation_key' => $automationKey]
+                );
                 $this->reportFail($client, $id, "Unknown action: {$automationKey}");
 
                 return ['id' => $id, 'key' => $automationKey, 'action' => 'rejected_unknown_action', 'message' => null];
@@ -182,6 +203,12 @@ final class AutomationRequestPoller
         } else {
             $invoker = $this->registry->find($automationKey);
             if (! $invoker) {
+                $logger->warning(
+                    LogScopeEnum::BACKGROUND,
+                    'invoker_unknown_workflow',
+                    "Pending workflow '{$automationKey}' rejected: no automation registered.",
+                    ['request_id' => $id, 'kind' => $kind, 'automation_key' => $automationKey]
+                );
                 $this->reportFail($client, $id, "Unknown automation key: {$automationKey}");
 
                 return ['id' => $id, 'key' => $automationKey, 'action' => 'rejected_unknown_key', 'message' => null];
@@ -201,19 +228,65 @@ final class AutomationRequestPoller
             ? InvocationActor::agent('agent:'.$agentKey)
             : InvocationActor::api();
 
+        // Per-invocation log. The agent dispatches actions one-at-a-time and
+        // we want every one of them traceable on this side: which invoker,
+        // who sent it (agent vs api), how long it took, success vs failure,
+        // and the failure reason if any. Without this the operator only
+        // sees Laravel's view of "did Beacon accept it" not "what did the
+        // plugin do with it".
+        $invokeStart = microtime(true);
+        $logCtx = [
+            'request_id' => $id,
+            'kind' => $kind,
+            'automation_key' => $automationKey,
+            'actor' => $actor->toString(),
+            'param_keys' => array_keys($parameters),
+        ];
+
         try {
             $result = $invoker->invoke($parameters, $actor);
+
+            $invokeMs = (int) round((microtime(true) - $invokeStart) * 1000);
 
             if ($result->ok) {
                 $client->completeAutomationRequest($id, $result->toArray());
                 $trace['action'] = $kind === 'action' ? 'action_completed' : 'completed';
                 $trace['message'] = $result->message;
+
+                $logger->info(
+                    LogScopeEnum::BACKGROUND,
+                    'invoker_completed',
+                    "{$kind} '{$automationKey}' completed.",
+                    array_merge($logCtx, ['duration_ms' => $invokeMs, 'message' => $result->message])
+                );
             } else {
                 $client->failAutomationRequest($id, $result->message ?? 'Automation returned failure.');
                 $trace['action'] = $kind === 'action' ? 'action_failed' : 'failed';
                 $trace['message'] = $result->message;
+
+                $logger->warning(
+                    LogScopeEnum::BACKGROUND,
+                    'invoker_failed',
+                    "{$kind} '{$automationKey}' returned failure: " . ($result->message ?? '(no message)'),
+                    array_merge($logCtx, ['duration_ms' => $invokeMs, 'message' => $result->message])
+                );
             }
         } catch (\Throwable $e) {
+            $invokeMs = (int) round((microtime(true) - $invokeStart) * 1000);
+
+            $logger->error(
+                LogScopeEnum::BACKGROUND,
+                'invoker_exception',
+                "{$kind} '{$automationKey}' threw exception: {$e->getMessage()}",
+                array_merge($logCtx, [
+                    'duration_ms' => $invokeMs,
+                    'exception' => get_class($e),
+                    'exception_message' => $e->getMessage(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                ])
+            );
+
             $this->reportFail($client, $id, "Invocation threw: {$e->getMessage()}");
             $trace['action'] = 'exception';
             $trace['message'] = $e->getMessage();
@@ -227,14 +300,19 @@ final class AutomationRequestPoller
         try {
             $client->failAutomationRequest($id, $error);
         } catch (\Throwable $e) {
-            $this->logError("Failed to report failure for automation request {$id}: {$e->getMessage()}");
-        }
-    }
-
-    private function logError(string $message): void
-    {
-        if (class_exists(Services::class)) {
-            Services::logger()->info(LogScopeEnum::API, LogEventEnum::API_RESPONSE_ERROR, $message);
+            // We can't tell Laravel about the failure — log loudly so the
+            // request looks "stuck claimed" investigation has a starting point.
+            Services::logger()->warning(
+                LogScopeEnum::BACKGROUND,
+                'automation_fail_report_failed',
+                "Failed to report failure for automation request {$id}: {$e->getMessage()}",
+                [
+                    'request_id' => $id,
+                    'original_error' => $error,
+                    'exception' => get_class($e),
+                    'exception_message' => $e->getMessage(),
+                ]
+            );
         }
     }
 }

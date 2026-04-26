@@ -31,6 +31,20 @@ final class HeartbeatScheduler
         // doesn't silently stay missing until someone deactivates+reactivates.
         if (! wp_next_scheduled(self::CRON_HOOK)) {
             wp_schedule_event(time() + 60, self::RECURRENCE, self::CRON_HOOK);
+
+            // Log self-heal explicitly — without this, the operator can't
+            // distinguish "scheduled at activation" from "scheduled after
+            // recovery" when looking at heartbeat history.
+            try {
+                Services::logger()->info(
+                    LogScopeEnum::SYSTEM,
+                    'heartbeat_schedule_self_heal',
+                    'Heartbeat cron was missing on register — re-scheduled.',
+                    ['hook' => self::CRON_HOOK, 'recurrence' => self::RECURRENCE]
+                );
+            } catch (\Throwable) {
+                // ignore
+            }
         }
     }
 
@@ -150,9 +164,17 @@ final class HeartbeatScheduler
 
     /**
      * Send a lifecycle signal to the Beacon API.
+     *
+     * Logs use a heartbeat-specific event name (not the generic API event) so
+     * lifecycle pings are filterable in the debug viewer. Status is included
+     * in every log entry — without it, "Heartbeat sent" tells the operator
+     * nothing about whether this was a daily active ping, an activation, a
+     * deactivation, or an uninstall notification.
      */
     private static function sendLifecycleSignal(string $status): void
     {
+        $logger = class_exists(Services::class) ? Services::logger() : null;
+
         try {
             $client = Services::apiClient();
 
@@ -167,38 +189,54 @@ final class HeartbeatScheduler
             ]);
 
             if ($response->ok) {
-                Services::logger()->info(
+                $logger?->info(
                     LogScopeEnum::API,
-                    LogEventEnum::API_REQUEST_OK,
-                    "Heartbeat sent: {$status}"
+                    'heartbeat_sent',
+                    "Heartbeat accepted by API ({$status}).",
+                    ['status' => $status, 'response_code' => $response->code]
                 );
 
                 // Also publish the automation catalog (only hits the API if changed).
                 try {
                     (new AutomationCatalogPublisher(new AutomationRegistry()))->publishIfChanged();
                 } catch (\Throwable $e) {
-                    Services::logger()->warning(
+                    $logger?->warning(
                         LogScopeEnum::SYSTEM,
-                        LogEventEnum::API_REQUEST_FAILED,
-                        'Catalog publish threw: '.$e->getMessage()
+                        'catalog_publish_threw',
+                        "Catalog publish threw during heartbeat ({$status}): {$e->getMessage()}",
+                        [
+                            'status' => $status,
+                            'exception' => get_class($e),
+                            'exception_message' => $e->getMessage(),
+                        ]
                     );
                 }
             } else {
-                Services::logger()->warning(
+                // Lifecycle status matters: a rejected "deactivated" ping
+                // means the dashboard still thinks the plugin is active.
+                $logger?->warning(
                     LogScopeEnum::API,
-                    LogEventEnum::API_REQUEST_FAILED,
-                    "Heartbeat rejected by API: {$response->message} (code {$response->code})"
+                    'heartbeat_rejected',
+                    "Heartbeat rejected by API ({$status}): {$response->message} (code {$response->code})",
+                    [
+                        'status' => $status,
+                        'response_code' => $response->code,
+                        'response_message' => $response->message,
+                    ]
                 );
             }
         } catch (\Throwable $e) {
             // Heartbeat failures are non-fatal — log and continue
-            if (class_exists(Services::class)) {
-                Services::logger()->warning(
-                    LogScopeEnum::API,
-                    LogEventEnum::API_REQUEST_FAILED,
-                    "Heartbeat failed: {$e->getMessage()}"
-                );
-            }
+            $logger?->warning(
+                LogScopeEnum::API,
+                'heartbeat_threw',
+                "Heartbeat threw exception ({$status}): {$e->getMessage()}",
+                [
+                    'status' => $status,
+                    'exception' => get_class($e),
+                    'exception_message' => $e->getMessage(),
+                ]
+            );
         }
     }
 

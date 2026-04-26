@@ -3,6 +3,8 @@
 namespace DigitalRoyalty\Beacon\Systems\Workshop;
 
 use DigitalRoyalty\Beacon\Repositories\FourOhFourLogsRepository;
+use DigitalRoyalty\Beacon\Services\Services;
+use DigitalRoyalty\Beacon\Support\Enums\Logging\LogScopeEnum;
 
 final class FourOhFourMonitorHandler
 {
@@ -40,6 +42,27 @@ final class FourOhFourMonitorHandler
         $userAgent = $userAgent !== null ? mb_substr($userAgent, 0, 1024) : null;
         $ipHash = $ip !== '' ? wp_hash($ip) : null;
 
-        $this->repo->record($path, $referrer, $userAgent, $ipHash);
+        try {
+            $this->repo->record($path, $referrer, $userAgent, $ipHash);
+        } catch (\Throwable $e) {
+            // 404 telemetry is silently lost if the insert fails — log so a
+            // suddenly-empty 404 report has a trail leading to schema/charset
+            // issues. Never re-throw: a logging hiccup must not break the
+            // 404 page itself.
+            try {
+                Services::logger()->warning(
+                    LogScopeEnum::SYSTEM,
+                    '404_record_failed',
+                    "Failed to record 404 hit for path '{$path}': {$e->getMessage()}",
+                    [
+                        'path' => $path,
+                        'exception' => get_class($e),
+                        'exception_message' => $e->getMessage(),
+                    ]
+                );
+            } catch (\Throwable) {
+                // ignore
+            }
+        }
     }
 }

@@ -6,6 +6,7 @@ use DigitalRoyalty\Beacon\Repositories\DeferredRequestsRepository;
 use DigitalRoyalty\Beacon\Repositories\ReportsRepository;
 use DigitalRoyalty\Beacon\Services\Services;
 use DigitalRoyalty\Beacon\Support\Enums\Automations\AutomationTypeEnum;
+use DigitalRoyalty\Beacon\Support\Enums\Logging\LogScopeEnum;
 use DigitalRoyalty\Beacon\Support\Enums\Reports\ReportTypeEnum;
 
 final class AutomationManager
@@ -63,19 +64,50 @@ final class AutomationManager
      */
     public function run(string $automationKey): array
     {
+        $logger = Services::logger();
+
         $automation = $this->registry->find($automationKey);
 
         if (!$automation) {
+            $logger->warning(
+                LogScopeEnum::SYSTEM,
+                'automation_run_rejected',
+                "Automation run rejected: unknown key '{$automationKey}'.",
+                ['automation_key' => $automationKey]
+            );
             return ['ok' => false, 'message' => 'Automation not found.'];
         }
 
         if (!$automation->deferredKey()) {
+            $logger->info(
+                LogScopeEnum::SYSTEM,
+                'automation_run_rejected',
+                "Automation '{$automationKey}' has no deferred key — not triggerable programmatically.",
+                ['automation_key' => $automationKey]
+            );
             return ['ok' => false, 'message' => 'This automation cannot be triggered programmatically.'];
         }
 
         $depCheck = $this->checkDependencies($automation);
 
         if (!$depCheck['met']) {
+            // Capture which specific deps blocked the run — without this,
+            // the operator just sees "dependencies missing or stale" with
+            // no clue which report needs running.
+            $missingOrStale = array_values(array_filter(
+                $depCheck['items'],
+                static fn ($item) => ($item['status'] ?? 'ok') !== 'ok'
+            ));
+
+            $logger->warning(
+                LogScopeEnum::SYSTEM,
+                'automation_dependencies_unmet',
+                "Automation '{$automationKey}' blocked by report dependencies.",
+                [
+                    'automation_key' => $automationKey,
+                    'unmet' => $missingOrStale,
+                ]
+            );
             return ['ok' => false, 'message' => 'One or more report dependencies are missing or stale. Run site reports first.'];
         }
 
@@ -91,10 +123,26 @@ final class AutomationManager
         };
 
         if ($apiResponse === null) {
+            $logger->warning(
+                LogScopeEnum::SYSTEM,
+                'automation_run_no_handler',
+                "No API handler registered for automation '{$automationKey}'.",
+                ['automation_key' => $automationKey]
+            );
             return ['ok' => false, 'message' => 'No API handler registered for this automation.'];
         }
 
         if (!$apiResponse->ok) {
+            $logger->warning(
+                LogScopeEnum::API,
+                'automation_run_api_failed',
+                "Automation '{$automationKey}' API request failed.",
+                [
+                    'automation_key' => $automationKey,
+                    'status_code' => $apiResponse->code,
+                    'message' => $apiResponse->message,
+                ]
+            );
             return ['ok' => false, 'message' => $apiResponse->message ?? 'API request failed.'];
         }
 
@@ -103,6 +151,16 @@ final class AutomationManager
         if ($apiResponse->deferredRequestId) {
             $result['deferred_request_id'] = $apiResponse->deferredRequestId;
         }
+
+        $logger->info(
+            LogScopeEnum::SYSTEM,
+            'automation_run_queued',
+            "Automation '{$automationKey}' queued.",
+            [
+                'automation_key' => $automationKey,
+                'deferred_request_id' => $apiResponse->deferredRequestId,
+            ]
+        );
 
         return $result;
     }

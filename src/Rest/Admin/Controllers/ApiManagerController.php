@@ -4,6 +4,8 @@ namespace DigitalRoyalty\Beacon\Rest\Admin\Controllers;
 
 use DigitalRoyalty\Beacon\Repositories\ApiKeysRepository;
 use DigitalRoyalty\Beacon\Repositories\ApiLogsRepository;
+use DigitalRoyalty\Beacon\Services\Services;
+use DigitalRoyalty\Beacon\Support\Enums\Logging\LogScopeEnum;
 use DigitalRoyalty\Beacon\Systems\Api\PublicApiEndpointRegistry;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -157,6 +159,24 @@ final class ApiManagerController
 
         $id = $this->keysRepo->insert($name, $hash, $prefix, $maxConcurrent, $hourlyLimit, $dailyLimit);
 
+        // Audit log: key creation is a security-relevant event. We record
+        // the prefix (not the full key) so an operator can correlate later
+        // usage in api_logs against this specific issuance.
+        Services::logger()->info(
+            LogScopeEnum::ADMIN,
+            'public_api_key_created',
+            "Public API key '{$name}' created.",
+            [
+                'api_key_id' => $id,
+                'name' => $name,
+                'key_prefix' => $prefix,
+                'max_concurrent' => max(1, $maxConcurrent),
+                'hourly_limit' => max(1, $hourlyLimit),
+                'daily_limit' => max(1, $dailyLimit),
+                'user_id' => get_current_user_id() ?: null,
+            ]
+        );
+
         return new WP_REST_Response([
             'id'             => $id,
             'name'           => $name,
@@ -180,15 +200,20 @@ final class ApiManagerController
             return new WP_REST_Response(['message' => 'Not found.'], 404);
         }
 
+        $changes = [];
+
         if ($request->has_param('name')) {
             $name = trim(sanitize_text_field((string) $request->get_param('name')));
             if ($name !== '') {
                 $this->keysRepo->rename($id, $name);
+                $changes['name'] = $name;
             }
         }
 
         if ($request->has_param('is_active')) {
-            $this->keysRepo->setActive($id, (bool) $request->get_param('is_active'));
+            $isActive = (bool) $request->get_param('is_active');
+            $this->keysRepo->setActive($id, $isActive);
+            $changes['is_active'] = $isActive;
         }
 
         $hasLimitUpdate = $request->has_param('max_concurrent')
@@ -197,11 +222,26 @@ final class ApiManagerController
 
         if ($hasLimitUpdate) {
             $current = $this->keysRepo->findById($id);
-            $this->keysRepo->updateLimits(
-                $id,
-                (int) ($request->get_param('max_concurrent') ?? $current['max_concurrent'] ?? 1),
-                (int) ($request->get_param('hourly_limit')   ?? $current['hourly_limit']   ?? 60),
-                (int) ($request->get_param('daily_limit')    ?? $current['daily_limit']    ?? 500)
+            $maxConcurrent = (int) ($request->get_param('max_concurrent') ?? $current['max_concurrent'] ?? 1);
+            $hourlyLimit = (int) ($request->get_param('hourly_limit') ?? $current['hourly_limit'] ?? 60);
+            $dailyLimit = (int) ($request->get_param('daily_limit') ?? $current['daily_limit'] ?? 500);
+            $this->keysRepo->updateLimits($id, $maxConcurrent, $hourlyLimit, $dailyLimit);
+            $changes['limits'] = compact('maxConcurrent', 'hourlyLimit', 'dailyLimit');
+        }
+
+        if ($changes !== []) {
+            // is_active changes are the highest-stakes mutation here — a key
+            // being disabled silently means real third-party traffic could
+            // start failing. Keep at info but emphasise via the message.
+            Services::logger()->info(
+                LogScopeEnum::ADMIN,
+                'public_api_key_updated',
+                "Public API key #{$id} updated.",
+                [
+                    'api_key_id' => $id,
+                    'changes' => $changes,
+                    'user_id' => get_current_user_id() ?: null,
+                ]
             );
         }
 
@@ -218,6 +258,20 @@ final class ApiManagerController
         }
 
         $this->keysRepo->delete($id);
+
+        // Warn-level: key deletion is destructive and revoking access to a
+        // third-party that depended on this key. Wants to stand out.
+        Services::logger()->warning(
+            LogScopeEnum::ADMIN,
+            'public_api_key_deleted',
+            "Public API key #{$id} ('{$row['name']}') deleted.",
+            [
+                'api_key_id' => $id,
+                'name' => $row['name'] ?? null,
+                'key_prefix' => $row['key_prefix'] ?? null,
+                'user_id' => get_current_user_id() ?: null,
+            ]
+        );
 
         return new WP_REST_Response(['success' => true], 200);
     }

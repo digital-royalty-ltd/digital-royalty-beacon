@@ -3,6 +3,8 @@
 namespace DigitalRoyalty\Beacon\Systems\Redirects;
 
 use DigitalRoyalty\Beacon\Repositories\RedirectsRepository;
+use DigitalRoyalty\Beacon\Services\Services;
+use DigitalRoyalty\Beacon\Support\Enums\Logging\LogScopeEnum;
 
 final class RedirectHandler
 {
@@ -25,7 +27,28 @@ final class RedirectHandler
             return;
         }
 
-        $this->repo->incrementHitCount((int) $redirect['id']);
+        // Failed hit-count updates make redirect analytics drift silently.
+        // Catch + debug-log so the operator can spot drift, but never let
+        // a metric write fail the redirect itself.
+        try {
+            $this->repo->incrementHitCount((int) $redirect['id']);
+        } catch (\Throwable $e) {
+            try {
+                Services::logger()->debug(
+                    LogScopeEnum::SYSTEM,
+                    'redirect_hit_count_failed',
+                    "Could not increment hit count for redirect #{$redirect['id']}: {$e->getMessage()}",
+                    [
+                        'redirect_id' => (int) $redirect['id'],
+                        'source_path' => $sourcePath,
+                        'exception' => get_class($e),
+                        'exception_message' => $e->getMessage(),
+                    ]
+                );
+            } catch (\Throwable) {
+                // ignore
+            }
+        }
 
         $type = (int) $redirect['redirect_type'];
         $url  = (string) $redirect['target_url'];

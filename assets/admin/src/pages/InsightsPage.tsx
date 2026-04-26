@@ -62,7 +62,7 @@ export function InsightsPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    api.get<{ signals: SignalEntry[] }>('/admin/insights/registry')
+    api.get<{ signals: SignalEntry[] }>('/insights/registry')
       .then((d) => setRegistry(d.signals ?? []))
       .catch(() => setError('Could not load the insights registry.'))
       .finally(() => setLoading(false))
@@ -168,7 +168,7 @@ function SignalTile({ entry, onBack }: { entry: SignalEntry; onBack: () => void 
         if (v === '') continue
         cleanArgs[i.key] = i.type === 'number' ? Number(v) : v
       }
-      const r = await api.post<SignalCallResponse>('/admin/insights/signal', {
+      const r = await api.post<SignalCallResponse>('/insights/signal', {
         provider: entry.provider,
         operation: entry.operation,
         args: cleanArgs,

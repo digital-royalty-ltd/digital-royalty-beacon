@@ -3,6 +3,8 @@
 namespace DigitalRoyalty\Beacon\Systems\Reports;
 
 use DigitalRoyalty\Beacon\Repositories\ReportsRepository;
+use DigitalRoyalty\Beacon\Services\Services;
+use DigitalRoyalty\Beacon\Support\Enums\Logging\LogScopeEnum;
 
 final class ReportService
 {
@@ -60,6 +62,16 @@ final class ReportService
 
         $type    = sanitize_key($type);
         $version = (int) $version;
+
+        // Operator-initiated single-report regeneration is a distinct event
+        // from the lifecycle run — log it so the audit trail captures
+        // "user X regenerated report Y at time Z".
+        Services::logger()->info(
+            LogScopeEnum::REPORTS,
+            'report_regenerate_invoked',
+            "Single-report regeneration triggered for {$type} v{$version}.",
+            ['type' => $type, 'version' => $version]
+        );
 
         $runner = new ReportRunner(
             new ReportRegistry(),

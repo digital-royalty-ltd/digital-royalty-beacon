@@ -83,7 +83,7 @@ export function CampaignActivity({ campaignId: explicitCampaignId }: Props) {
       return
     }
     setResolvingCampaign(true)
-    api.get<{ campaigns: Campaign[] }>('/admin/marketing/campaigns')
+    api.get<{ campaigns: Campaign[] }>('/marketing/campaigns')
       .then((res) => {
         const list = res.campaigns ?? []
         setCampaigns(list)
@@ -176,7 +176,7 @@ function SessionsTab({ campaignId }: { campaignId: number }) {
   const load = () => {
     setLoading(true)
     setError(null)
-    api.get<{ sessions: SessionRow[] }>(`/admin/marketing/campaigns/${campaignId}/sessions?limit=25`)
+    api.get<{ sessions: SessionRow[] }>(`/marketing/campaigns/${campaignId}/sessions?limit=25`)
       .then((d) => setRows(d.sessions ?? []))
       .catch(() => setError('Could not load sessions.'))
       .finally(() => setLoading(false))
@@ -252,7 +252,7 @@ function MemoryTab({ campaignId }: { campaignId: number }) {
   const load = () => {
     setLoading(true)
     setError(null)
-    api.get<{ memory: Record<string, MemoryEntry[]> }>(`/admin/marketing/campaigns/${campaignId}/memory`)
+    api.get<{ memory: Record<string, MemoryEntry[]> }>(`/marketing/campaigns/${campaignId}/memory`)
       .then((d) => setData(d.memory ?? {}))
       .catch(() => setError('Could not load memory.'))
       .finally(() => setLoading(false))
@@ -306,7 +306,7 @@ function WatcherTab({ campaignId }: { campaignId: number }) {
     setError(null)
     const q = new URLSearchParams({ limit: '50', since_days: '30' })
     if (severity) q.set('severity', severity)
-    api.get<{ events: WatcherEvent[] }>(`/admin/marketing/campaigns/${campaignId}/watcher-events?${q.toString()}`)
+    api.get<{ events: WatcherEvent[] }>(`/marketing/campaigns/${campaignId}/watcher-events?${q.toString()}`)
       .then((d) => setRows(d.events ?? []))
       .catch(() => setError('Could not load watcher events.'))
       .finally(() => setLoading(false))
@@ -374,7 +374,7 @@ function ActionsTab({ campaignId }: { campaignId: number }) {
   const load = () => {
     setLoading(true)
     setError(null)
-    api.get<{ entries: ActionLogEntry[] }>(`/admin/marketing/campaigns/${campaignId}/action-log?limit=50`)
+    api.get<{ entries: ActionLogEntry[] }>(`/marketing/campaigns/${campaignId}/action-log?limit=50`)
       .then((d) => setRows(d.entries ?? []))
       .catch(() => setError('Could not load action log.'))
       .finally(() => setLoading(false))

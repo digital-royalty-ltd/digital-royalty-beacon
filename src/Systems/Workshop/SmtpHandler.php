@@ -2,7 +2,9 @@
 
 namespace DigitalRoyalty\Beacon\Systems\Workshop;
 
+use DigitalRoyalty\Beacon\Services\Services;
 use DigitalRoyalty\Beacon\Support\Enums\Admin\SmtpEnum;
+use DigitalRoyalty\Beacon\Support\Enums\Logging\LogScopeEnum;
 use PHPMailer\PHPMailer\PHPMailer;
 
 final class SmtpHandler
@@ -64,12 +66,34 @@ final class SmtpHandler
     public function logFailure(\WP_Error $error): void
     {
         $data = $error->get_error_data();
+        $to = is_array($data['to'] ?? '') ? implode(', ', $data['to']) : (string) ($data['to'] ?? '');
+        $subject = (string) ($data['subject'] ?? '');
+        $message = $error->get_error_message();
+
+        // Mirror SMTP failures to the structured log so they're searchable
+        // alongside everything else, not just buried in the rolling 50-entry
+        // option-array view.
+        try {
+            Services::logger()->warning(
+                LogScopeEnum::SYSTEM,
+                'smtp_mail_failed',
+                "Outgoing email failed (to={$to}): {$message}",
+                [
+                    'to' => $to,
+                    'subject' => $subject,
+                    'error' => $message,
+                ]
+            );
+        } catch (\Throwable) {
+            // ignore — never break the mail pipeline.
+        }
+
         $this->appendLog([
-            'to'      => is_array($data['to'] ?? '') ? implode(', ', $data['to']) : (string) ($data['to'] ?? ''),
-            'subject' => (string) ($data['subject'] ?? ''),
+            'to'      => $to,
+            'subject' => $subject,
             'sent_at' => current_time('mysql'),
             'ok'      => false,
-            'error'   => $error->get_error_message(),
+            'error'   => $message,
         ]);
     }
 
@@ -78,6 +102,23 @@ final class SmtpHandler
         $log = (array) get_option('dr_beacon_smtp_mail_log', []);
         array_unshift($log, $entry);
         $log = array_slice($log, 0, 50);
-        update_option('dr_beacon_smtp_mail_log', $log, false);
+        $saved = update_option('dr_beacon_smtp_mail_log', $log, false);
+
+        // update_option returns false when value is unchanged OR when persist
+        // fails. We can't distinguish those cleanly, so only log when this
+        // was a failure entry (which always changes the leading row) — that
+        // way a "no change" scenario doesn't spam the log.
+        if (!$saved && ($entry['ok'] ?? true) === false) {
+            try {
+                Services::logger()->warning(
+                    LogScopeEnum::SYSTEM,
+                    'smtp_log_persist_failed',
+                    'Could not persist SMTP failure entry to dr_beacon_smtp_mail_log option.',
+                    ['entry' => $entry]
+                );
+            } catch (\Throwable) {
+                // ignore
+            }
+        }
     }
 }

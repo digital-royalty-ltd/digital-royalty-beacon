@@ -2,7 +2,9 @@
 
 namespace DigitalRoyalty\Beacon\Systems\Workshop;
 
+use DigitalRoyalty\Beacon\Services\Services;
 use DigitalRoyalty\Beacon\Support\Enums\Admin\PostExpiryEnum;
+use DigitalRoyalty\Beacon\Support\Enums\Logging\LogScopeEnum;
 
 final class PostExpiryHandler
 {
@@ -121,18 +123,53 @@ final class PostExpiryHandler
             ],
         ]);
 
+        if ($posts === []) {
+            return;
+        }
+
+        $logger = Services::logger();
+        $applied = [];
+        $failed = [];
+
         foreach ($posts as $post) {
-            $action = (string) get_post_meta((int) $post->ID, PostExpiryEnum::META_ACTION_KEY, true);
+            $postId = (int) $post->ID;
+            $action = (string) get_post_meta($postId, PostExpiryEnum::META_ACTION_KEY, true);
             $action = in_array($action, ['draft', 'private', 'trash'], true) ? $action : 'draft';
 
+            $ok = false;
+            $errorMessage = null;
+
             if ($action === 'trash') {
-                wp_trash_post((int) $post->ID);
+                $ok = wp_trash_post($postId) !== false;
             } else {
-                wp_update_post(['ID' => $post->ID, 'post_status' => $action]);
+                $result = wp_update_post(['ID' => $postId, 'post_status' => $action], true);
+                if ($result instanceof \WP_Error) {
+                    $errorMessage = $result->get_error_message();
+                } else {
+                    $ok = (int) $result > 0;
+                }
             }
 
-            delete_post_meta((int) $post->ID, PostExpiryEnum::META_KEY);
-            delete_post_meta((int) $post->ID, PostExpiryEnum::META_ACTION_KEY);
+            if ($ok) {
+                $applied[] = ['post_id' => $postId, 'action' => $action, 'title' => get_the_title($post)];
+                delete_post_meta($postId, PostExpiryEnum::META_KEY);
+                delete_post_meta($postId, PostExpiryEnum::META_ACTION_KEY);
+            } else {
+                // Don't strip the meta on failure — without this, an expiry
+                // that failed would never retry on the next cron run.
+                $failed[] = ['post_id' => $postId, 'action' => $action, 'error' => $errorMessage];
+                try {
+                    $logger->warning(
+                        LogScopeEnum::BACKGROUND,
+                        'post_expiry_action_failed',
+                        "Could not apply expiry action '{$action}' to post #{$postId}.",
+                        ['post_id' => $postId, 'action' => $action, 'error' => $errorMessage]
+                    );
+                } catch (\Throwable) {
+                    // ignore
+                }
+                continue;
+            }
 
             $settings = (array) get_option(PostExpiryEnum::OPTION_SETTINGS, []);
             $notifyTo = sanitize_email((string) ($settings['notify_email'] ?? ''));
@@ -143,12 +180,27 @@ final class PostExpiryHandler
                     sprintf('Beacon expiry ran for "%s"', get_the_title($post)),
                     sprintf(
                         "Beacon changed post #%d (%s) to %s after its scheduled expiry time.",
-                        (int) $post->ID,
+                        $postId,
                         get_the_title($post),
                         $action
                     )
                 );
             }
+        }
+
+        try {
+            $logger->info(
+                LogScopeEnum::BACKGROUND,
+                'post_expiry_run_complete',
+                sprintf('Post expiry run complete: applied=%d, failed=%d.', count($applied), count($failed)),
+                [
+                    'applied_count' => count($applied),
+                    'failed_count' => count($failed),
+                    'applied' => $applied,
+                ]
+            );
+        } catch (\Throwable) {
+            // ignore
         }
     }
 }

@@ -270,7 +270,19 @@ final class DeferredRequestRunner
             try {
                 $nextDue = $this->repo->nextPendingAttemptTimestampUtc();
             } catch (Throwable $e) {
-                // Swallow — no pending work.
+                // The queue can stall silently if this throws — without the
+                // log, an operator sees "deferred runs stopped" with no clue
+                // why. Log the repo failure so it's actionable.
+                Services::logger()->error(
+                    LogScopeEnum::BACKGROUND,
+                    'deferred_queue_stalled',
+                    'Deferred runner could not check the queue for pending work — runner may have stopped scheduling.',
+                    [
+                        'where' => 'scheduleNextIfPending',
+                        'exception' => get_class($e),
+                        'exception_message' => $e->getMessage(),
+                    ]
+                );
             }
         }
 
@@ -302,6 +314,16 @@ final class DeferredRequestRunner
                 $nextDue = $this->repo->nextPendingAttemptTimestampUtc();
             } catch (Throwable $e) {
                 $nextDue = null;
+                $logger->warning(
+                    LogScopeEnum::BACKGROUND,
+                    'deferred_queue_check_failed',
+                    'Deferred runner could not query queue for next attempt time; falling back to default rescheduling.',
+                    [
+                        'where' => 'scheduleNextIfNeeded',
+                        'exception' => get_class($e),
+                        'exception_message' => $e->getMessage(),
+                    ]
+                );
             }
         }
 

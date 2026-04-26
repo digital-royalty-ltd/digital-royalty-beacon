@@ -3,6 +3,7 @@
 namespace DigitalRoyalty\Beacon\Systems\Deferred\Handlers;
 
 use DigitalRoyalty\Beacon\Services\Services;
+use DigitalRoyalty\Beacon\Support\Enums\Logging\LogScopeEnum;
 use DigitalRoyalty\Beacon\Systems\Deferred\DeferredCompletionHandlerInterface;
 use WP_Error;
 use WP_Taxonomy;
@@ -154,7 +155,7 @@ final class ContentGeneratorDraftHandler implements DeferredCompletionHandlerInt
                 $termIds = array_values(array_filter($termIds, static fn ($id) => $id > 0));
 
                 if ($termIds) {
-                    wp_set_object_terms($postId, $termIds, $taxonomy, false);
+                    $this->setTermsAndLog($postId, $termIds, $taxonomy);
                 }
 
                 continue;
@@ -162,8 +163,36 @@ final class ContentGeneratorDraftHandler implements DeferredCompletionHandlerInt
 
             $names = array_filter(array_map('trim', explode(',', (string) $value)));
             if ($names) {
-                wp_set_object_terms($postId, $names, $taxonomy, false);
+                $this->setTermsAndLog($postId, $names, $taxonomy);
             }
+        }
+    }
+
+    /**
+     * Wrap wp_set_object_terms so failures (non-existent taxonomy at write
+     * time, capability check, DB errors) are logged. Without this, drafts
+     * silently land without tags/categories and the operator only finds out
+     * by clicking through every post.
+     *
+     * @param array<int,int|string> $terms
+     */
+    private function setTermsAndLog(int $postId, array $terms, string $taxonomy): void
+    {
+        $result = wp_set_object_terms($postId, $terms, $taxonomy, false);
+
+        if ($result instanceof WP_Error) {
+            Services::logger()->warning(
+                LogScopeEnum::REPORTS,
+                'taxonomy_assignment_failed',
+                "Could not apply '{$taxonomy}' to draft post {$postId}: {$result->get_error_message()}",
+                [
+                    'post_id' => $postId,
+                    'taxonomy' => $taxonomy,
+                    'terms' => $terms,
+                    'error_code' => $result->get_error_code(),
+                    'error_message' => $result->get_error_message(),
+                ]
+            );
         }
     }
 }

@@ -246,9 +246,19 @@ final class AutomationScheduler
 
     public function runDue(): void
     {
+        $logger = Services::logger();
         $schedules = $this->all();
         $now       = gmdate('Y-m-d H:i:s');
         $changed   = false;
+        $dispatched = 0;
+        $failed = 0;
+
+        $logger->info(
+            LogScopeEnum::BACKGROUND,
+            'scheduler_tick_start',
+            'Automation scheduler tick started.',
+            ['total_schedules' => count($schedules), 'now' => $now]
+        );
 
         foreach ($schedules as &$schedule) {
             if (!($schedule['enabled'] ?? false)) {
@@ -265,7 +275,11 @@ final class AutomationScheduler
                 continue;
             }
 
-            $this->dispatch($schedule);
+            if ($this->dispatch($schedule)) {
+                $dispatched++;
+            } else {
+                $failed++;
+            }
 
             $schedule['last_run_at']  = $now;
             $schedule['next_run_at']  = $this->calculateNextRun(
@@ -279,12 +293,24 @@ final class AutomationScheduler
         if ($changed) {
             update_option(self::OPTION_KEY, $schedules, false);
         }
+
+        $logger->info(
+            LogScopeEnum::BACKGROUND,
+            'scheduler_tick_end',
+            sprintf('Automation scheduler tick complete: dispatched=%d, failed=%d.', $dispatched, $failed),
+            ['dispatched' => $dispatched, 'failed' => $failed]
+        );
     }
 
     /**
+     * Dispatch a single scheduled automation. Returns true if the API
+     * accepted the request, false otherwise (no handler, transport error,
+     * or non-2xx response). The caller logs a tick summary using these
+     * counts so failed dispatches are no longer invisible.
+     *
      * @param array<string,mixed> $schedule
      */
-    private function dispatch(array $schedule): void
+    private function dispatch(array $schedule): bool
     {
         $automationKey = $schedule['automation_key'] ?? '';
         $parameters    = is_array($schedule['parameters'] ?? null) ? $schedule['parameters'] : [];
@@ -293,7 +319,7 @@ final class AutomationScheduler
         $logger = Services::logger();
 
         $logger->info(
-            LogScopeEnum::SYSTEM,
+            LogScopeEnum::BACKGROUND,
             LogEventEnum::AUTOMATION_SCHEDULED_RUN,
             "Running scheduled automation: {$automationKey}",
             [
@@ -315,16 +341,40 @@ final class AutomationScheduler
 
         $apiClient = Services::apiClient();
 
-        match ($automationKey) {
+        $response = match ($automationKey) {
             'news_article_generator' => $apiClient->generateNewsArticle($parameters),
             'social_share'           => $apiClient->generateSocialPosts($parameters),
-            default => $logger->info(
-                LogScopeEnum::SYSTEM,
+            default => null,
+        };
+
+        if ($response === null) {
+            $logger->warning(
+                LogScopeEnum::BACKGROUND,
                 LogEventEnum::AUTOMATION_SCHEDULED_RUN,
                 "No dispatch handler for scheduled automation: {$automationKey}",
-                ['schedule_id' => $scheduleId]
-            ),
-        };
+                ['schedule_id' => $scheduleId, 'automation_key' => $automationKey]
+            );
+
+            return false;
+        }
+
+        if (!$response->ok) {
+            $logger->warning(
+                LogScopeEnum::BACKGROUND,
+                LogEventEnum::AUTOMATION_SCHEDULED_RUN,
+                "Scheduled automation API call failed: {$automationKey}",
+                [
+                    'schedule_id' => $scheduleId,
+                    'automation_key' => $automationKey,
+                    'status_code' => $response->code,
+                    'message' => $response->message,
+                ]
+            );
+
+            return false;
+        }
+
+        return true;
     }
 
     // -----------------------------------------------------------------------
@@ -334,6 +384,15 @@ final class AutomationScheduler
     private function validateFrequency(string $frequency): void
     {
         if (!in_array($frequency, self::validFrequencies(), true)) {
+            // Log at source — the REST controller catches the exception and
+            // returns a generic 400 without context, so without this log a
+            // rejected schedule create is invisible to the operator.
+            Services::logger()->warning(
+                LogScopeEnum::SYSTEM,
+                'schedule_validation_failed',
+                "Schedule create rejected: invalid frequency '{$frequency}'.",
+                ['field' => 'frequency', 'value' => $frequency, 'allowed' => self::validFrequencies()]
+            );
             throw new \InvalidArgumentException("Invalid frequency: {$frequency}.");
         }
     }
@@ -341,6 +400,12 @@ final class AutomationScheduler
     private function validateEndBehavior(string $endBehavior): void
     {
         if (!in_array($endBehavior, self::validEndBehaviors(), true)) {
+            Services::logger()->warning(
+                LogScopeEnum::SYSTEM,
+                'schedule_validation_failed',
+                "Schedule create rejected: invalid end_behavior '{$endBehavior}'.",
+                ['field' => 'end_behavior', 'value' => $endBehavior, 'allowed' => self::validEndBehaviors()]
+            );
             throw new \InvalidArgumentException("Invalid end_behavior: {$endBehavior}.");
         }
     }

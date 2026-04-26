@@ -46,6 +46,12 @@ final class ConfigController
         $apiKey = isset($params['api_key']) ? sanitize_text_field((string) $params['api_key']) : '';
 
         if ($apiKey === '') {
+            Services::logger()->info(
+                LogScopeEnum::ADMIN,
+                LogEventEnum::CONNECT_FAILED,
+                'API key save rejected: empty input.',
+                ['user_id' => get_current_user_id() ?: null]
+            );
             return new WP_REST_Response(['message' => 'API key is required.'], 422);
         }
 
@@ -57,6 +63,8 @@ final class ConfigController
 
             Services::logger()->warning(LogScopeEnum::ADMIN, LogEventEnum::CONNECT_FAILED, $msg, [
                 'code' => $res->code,
+                'masked_key' => $this->maskKey($apiKey),
+                'user_id' => get_current_user_id() ?: null,
             ]);
 
             return new WP_REST_Response(['message' => $msg], 422);
@@ -66,7 +74,10 @@ final class ConfigController
         update_option(HomeViewOptionEnum::CONNECTED_AT, gmdate('c'), false);
         Services::reset();
 
-        Services::logger()->info(LogScopeEnum::ADMIN, LogEventEnum::CONNECTED, 'Connected successfully.');
+        Services::logger()->info(LogScopeEnum::ADMIN, LogEventEnum::CONNECTED, 'Connected successfully.', [
+            'masked_key' => $this->maskKey($apiKey),
+            'user_id' => get_current_user_id() ?: null,
+        ]);
 
         return new WP_REST_Response([
             'ok'           => true,
@@ -80,6 +91,12 @@ final class ConfigController
         $apiKey = (string) get_option(HomeViewOptionEnum::API_KEY, '');
 
         if ($apiKey === '') {
+            Services::logger()->info(
+                LogScopeEnum::ADMIN,
+                'verify_api_key_no_key',
+                'API key verify called with no stored key.',
+                ['user_id' => get_current_user_id() ?: null]
+            );
             return new WP_REST_Response(['ok' => false, 'message' => 'No API key configured.'], 422);
         }
 
@@ -87,6 +104,20 @@ final class ConfigController
         $res    = $client->verifyApiKey();
 
         if (!$res->isOk()) {
+            // Verify failures matter — they tell us when a previously-working
+            // key has stopped working (rotated, revoked, server change).
+            Services::logger()->warning(
+                LogScopeEnum::ADMIN,
+                'verify_api_key_failed',
+                'Stored API key failed verification.',
+                [
+                    'code' => $res->code,
+                    'message' => $res->message,
+                    'masked_key' => $this->maskKey($apiKey),
+                    'user_id' => get_current_user_id() ?: null,
+                ]
+            );
+
             return new WP_REST_Response([
                 'ok'      => false,
                 'message' => $res->message ?? 'Connection failed.',
@@ -113,7 +144,9 @@ final class ConfigController
         }
 
         Services::reset();
-        Services::logger()->info(LogScopeEnum::ADMIN, LogEventEnum::DISCONNECTED, 'Disconnected.');
+        Services::logger()->info(LogScopeEnum::ADMIN, LogEventEnum::DISCONNECTED, 'Disconnected.', [
+            'user_id' => get_current_user_id() ?: null,
+        ]);
 
         return new WP_REST_Response(['ok' => true], 200);
     }
