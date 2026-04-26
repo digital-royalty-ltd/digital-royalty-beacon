@@ -22,7 +22,6 @@ use DigitalRoyalty\Beacon\Rest\Admin\Controllers\ContentEnrichmentController;
 use DigitalRoyalty\Beacon\Rest\Admin\Controllers\ContentFromSampleController;
 use DigitalRoyalty\Beacon\Rest\Admin\Controllers\ContentGeneratorController;
 use DigitalRoyalty\Beacon\Rest\Admin\Controllers\GenerateImageController;
-use DigitalRoyalty\Beacon\Rest\Admin\Controllers\InsightsController;
 use DigitalRoyalty\Beacon\Rest\Admin\Controllers\NewsArticleGeneratorController;
 use DigitalRoyalty\Beacon\Rest\Admin\Controllers\AutomationScheduleController;
 use DigitalRoyalty\Beacon\Rest\Admin\Controllers\SocialShareController;
@@ -70,7 +69,6 @@ final class AdminRestService
             (new ContentFromSampleController())->registerRoutes();
             (new ContentEnrichmentController())->registerRoutes();
             (new GenerateImageController())->registerRoutes();
-            (new InsightsController())->registerRoutes();
             (new NewsArticleGeneratorController())->registerRoutes();
             (new AutomationScheduleController())->registerRoutes();
             (new SocialShareController())->registerRoutes();

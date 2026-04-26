@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Wrench, Zap, Target, Settings, Bug, Code2, KeyRound, Sparkles } from 'lucide-react'
+import { LayoutDashboard, Wrench, Zap, Target, Settings, Bug, Code2, KeyRound } from 'lucide-react'
 
 function HexLogo({ className }: { className?: string }) {
   return (
@@ -15,7 +15,6 @@ const navItems = [
   { to: '/',                label: 'Dashboard',      icon: LayoutDashboard, end: true },
   { to: '/workshop',        label: 'Workshop',        icon: Wrench                    },
   { to: '/automations',     label: 'Automations',     icon: Zap                       },
-  { to: '/insights',        label: 'Insights',        icon: Sparkles                  },
   { to: '/campaigns',       label: 'Campaigns',       icon: Target                    },
   { to: '/development',     label: 'Development',     icon: Code2                     },
   { to: '/configuration',   label: 'Configuration',   icon: Settings                  },
