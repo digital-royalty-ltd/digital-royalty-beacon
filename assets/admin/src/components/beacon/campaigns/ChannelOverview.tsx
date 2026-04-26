@@ -21,10 +21,12 @@ import {
     MessageSquare,
     Send,
     ChevronRight,
+    Sparkles,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 import type { ChannelEntry } from './ChannelSidebar'
+import { CapabilitiesModal } from './CapabilitiesModal'
 
 interface RequestStatus {
     status:       'pending' | 'claimed' | 'completed' | 'failed'
@@ -105,6 +107,7 @@ export function ChannelOverview({ channel, onEdit, onResume, onUnhire, onSwap, b
     const [answerDrafts, setDrafts]   = useState<Record<string, string>>({})
     const [sendingHash, setSending]   = useState<string | null>(null)
     const [activeFilters, setFilters] = useState<Set<string>>(new Set(['all']))
+    const [capabilitiesOpen, setCapabilitiesOpen] = useState(false)
 
     const loadLedger = async () => {
         setLoading(true)
@@ -222,6 +225,14 @@ export function ChannelOverview({ channel, onEdit, onResume, onUnhire, onSwap, b
                     <p className="text-xs font-medium text-white/70 mb-0.5">Managing {channel.label}</p>
                     <p className="text-xl font-bold">{agent.label}</p>
                     <p className="text-xs text-white/80 mt-0.5 truncate">{agent.tagline}</p>
+                    <button
+                        type="button"
+                        onClick={() => setCapabilitiesOpen(true)}
+                        className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-white/85 hover:text-white underline-offset-2 hover:underline"
+                    >
+                        <Sparkles className="h-3 w-3" />
+                        Capabilities
+                    </button>
                 </div>
                 {channel.pacing?.next_turn_at && (
                     <div className="bg-white/15 rounded-lg px-3 py-2 text-right shrink-0">
@@ -561,6 +572,14 @@ export function ChannelOverview({ channel, onEdit, onResume, onUnhire, onSwap, b
                     Edit setup
                 </Button>
             </div>
+
+            {capabilitiesOpen && (
+                <CapabilitiesModal
+                    channel={channel.key}
+                    agentLabel={agent.label}
+                    onClose={() => setCapabilitiesOpen(false)}
+                />
+            )}
         </div>
     )
 }

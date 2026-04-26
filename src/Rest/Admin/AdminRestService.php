@@ -14,6 +14,7 @@ use DigitalRoyalty\Beacon\Rest\Admin\Controllers\ApiManagerController;
 use DigitalRoyalty\Beacon\Rest\Admin\Controllers\AutomationsController;
 use DigitalRoyalty\Beacon\Rest\Admin\Controllers\BootstrapController;
 use DigitalRoyalty\Beacon\Rest\Admin\Controllers\CampaignsController;
+use DigitalRoyalty\Beacon\Rest\Admin\Controllers\CapabilitiesController;
 use DigitalRoyalty\Beacon\Rest\Admin\Controllers\ClientErrorLogController;
 use DigitalRoyalty\Beacon\Rest\Admin\Controllers\ConfigController;
 use DigitalRoyalty\Beacon\Rest\Admin\Controllers\ConnectionsController;
@@ -61,6 +62,7 @@ final class AdminRestService
             (new AutomationsController($this->reportsRepo, $this->deferredRepo))->registerRoutes();
             (new BootstrapController($this->reportsRepo))->registerRoutes();
             (new CampaignsController())->registerRoutes();
+            (new CapabilitiesController())->registerRoutes();
             (new ClientErrorLogController())->registerRoutes();
             (new ConfigController())->registerRoutes();
             (new ConnectionsController())->registerRoutes();

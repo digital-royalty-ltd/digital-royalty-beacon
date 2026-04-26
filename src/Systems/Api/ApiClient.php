@@ -647,6 +647,23 @@ final class ApiClient
     }
 
     /**
+     * Fetch the discipline-scoped capability bundle (signals, actions,
+     * synthesis tools, watchers) for a marketing channel. The plugin merges
+     * its own automations + WP action invokers into the response client-side.
+     */
+    public function getMarketingChannelCapabilities(string $channel): ApiResponse
+    {
+        return $this->request(
+            method: 'GET',
+            path: 'marketing-channels/' . rawurlencode($channel) . '/capabilities',
+            payload: [],
+            includeClientMeta: false,
+            requireAuth: true,
+            timeout: 15
+        );
+    }
+
+    /**
      * Call a Beacon signal (atomic data read with cache + credit gate).
      *
      * Synchronous helper-endpoint pattern. Response carries `data`, `cache`
