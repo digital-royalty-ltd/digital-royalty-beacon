@@ -9,7 +9,7 @@ const PREMIUM_FEATURES = [
 
 export function AppSidebar() {
   return (
-    <aside className="w-80 shrink-0 border-l border-[#390d58]/10 overflow-y-auto bg-white flex flex-col gap-4 px-5 py-6">
+    <aside className="w-full lg:w-80 shrink-0 border-t lg:border-t-0 lg:border-l border-[#390d58]/10 lg:overflow-y-auto bg-white flex flex-col gap-4 px-4 sm:px-5 py-5 sm:py-6">
 
       {/* Premium upsell */}
       <div className="rounded-xl bg-gradient-to-b from-[#390d58] to-[#2d0a47] p-4 text-white">

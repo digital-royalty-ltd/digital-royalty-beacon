@@ -154,6 +154,14 @@
   color: revert-layer;
 }
 
+/* Hide native scrollbars on the mobile header nav (it uses overflow-x-auto
+   so all 8 tabs remain reachable on narrow viewports). The Tailwind
+   inline `scrollbar-width: none` covers Firefox; the rule below covers
+   WebKit/Blink. */
+#beacon-root header nav::-webkit-scrollbar {
+  display: none;
+}
+
 /* Radix portals (Select dropdowns, etc.) need access to the CSS vars */
 [data-radix-popper-content-wrapper] {
   --background: oklch(1 0 0);

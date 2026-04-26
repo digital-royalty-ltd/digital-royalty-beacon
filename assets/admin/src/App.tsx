@@ -30,11 +30,15 @@ declare global {
 }
 
 function Layout() {
+  // Desktop: full-viewport split — header at top, scrollable main + sticky
+  // sidebar below. Mobile: single column, page scrolls naturally with the
+  // sidebar stacked under main content (the sidebar's width would dominate
+  // the viewport otherwise).
   return (
-    <div className="flex flex-col h-screen bg-background overflow-hidden">
+    <div className="flex flex-col min-h-screen lg:h-screen bg-background lg:overflow-hidden">
       <Header />
-      <div className="flex flex-1 overflow-hidden">
-        <main className="flex-1 overflow-y-auto px-6 py-8">
+      <div className="flex flex-col lg:flex-row flex-1 lg:overflow-hidden">
+        <main className="flex-1 lg:overflow-y-auto px-4 sm:px-6 py-6 sm:py-8 min-w-0">
           <Outlet />
         </main>
         <AppSidebar />
