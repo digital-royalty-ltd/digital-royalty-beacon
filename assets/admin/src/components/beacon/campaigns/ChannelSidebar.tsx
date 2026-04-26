@@ -34,14 +34,28 @@ export interface ChannelPacing {
   cadence:      'daily' | 'weekly' | 'on_demand'
 }
 
+export interface ChannelDependency {
+  provider:  string
+  label:     string
+  connected: boolean
+}
+
+export interface ChannelDependencies {
+  met:              boolean
+  required:         ChannelDependency[]
+  optional:         ChannelDependency[]
+  missing_required: string[]
+}
+
 export interface ChannelEntry {
-  key:     string
-  label:   string
-  agent:   (AiCharacter & { key: string }) | null
-  setup:   ChannelSetup | null
-  warmup:  ChannelWarmup | null
-  billing: ChannelBilling | null
-  pacing:  ChannelPacing | null
+  key:          string
+  label:        string
+  agent:        (AiCharacter & { key: string }) | null
+  setup:        ChannelSetup | null
+  warmup:       ChannelWarmup | null
+  billing:      ChannelBilling | null
+  pacing:       ChannelPacing | null
+  dependencies: ChannelDependencies
 }
 
 interface Props {

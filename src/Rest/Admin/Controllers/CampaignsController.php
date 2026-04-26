@@ -61,6 +61,12 @@ final class CampaignsController
             'permission_callback' => $perm,
         ]);
 
+        register_rest_route('beacon/v1', '/admin/campaigns/channels/(?P<channel>[a-z_]+)/memory', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'channelMemory'],
+            'permission_callback' => $perm,
+        ]);
+
         register_rest_route('beacon/v1', '/admin/campaigns/channels/(?P<channel>[a-z_]+)/answers', [
             'methods'             => 'POST',
             'callback'            => [$this, 'answerChannelQuestion'],
@@ -214,6 +220,15 @@ final class CampaignsController
         $limit = (int) ($request->get_param('limit') ?? 50);
 
         $res = Services::apiClient()->getMarketingChannelLedger($channel, $limit);
+
+        return $this->forward($res);
+    }
+
+    public function channelMemory(WP_REST_Request $request): WP_REST_Response
+    {
+        $channel = (string) $request->get_param('channel');
+
+        $res = Services::apiClient()->getMarketingChannelMemory($channel);
 
         return $this->forward($res);
     }

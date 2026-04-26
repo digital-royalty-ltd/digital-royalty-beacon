@@ -14,9 +14,7 @@ import {
     Zap,
     Wallet,
     CalendarDays,
-    Eye,
     ListChecks,
-    HelpCircle,
     Target,
     MessageSquare,
     Send,
@@ -102,6 +100,7 @@ interface Props {
  */
 export function ChannelOverview({ channel, onEdit, onResume, onUnhire, onSwap, busy }: Props) {
     const [entries, setEntries]       = useState<LedgerEntry[]>([])
+    const [memory, setMemory]         = useState<Record<string, unknown>>({})
     const [loading, setLoading]       = useState(true)
     const [error, setError]           = useState<string | null>(null)
     const [answerDrafts, setDrafts]   = useState<Record<string, string>>({})
@@ -113,10 +112,15 @@ export function ChannelOverview({ channel, onEdit, onResume, onUnhire, onSwap, b
         setLoading(true)
         setError(null)
         try {
-            const res = await api.get<{ entries: LedgerEntry[] }>(
-                `/campaigns/channels/${channel.key}/ledger?limit=50`
-            )
-            setEntries(res.entries ?? [])
+            // Ledger and memory are fetched in parallel — both populate
+            // distinct panels (ledger → activity timeline; memory → agent's
+            // current take / cycle plan / open questions).
+            const [ledgerRes, memoryRes] = await Promise.all([
+                api.get<{ entries: LedgerEntry[] }>(`/campaigns/channels/${channel.key}/ledger?limit=50`),
+                api.get<{ memory: Record<string, unknown> }>(`/campaigns/channels/${channel.key}/memory`).catch(() => ({ memory: {} })),
+            ])
+            setEntries(ledgerRes.entries ?? [])
+            setMemory((memoryRes as { memory?: Record<string, unknown> }).memory ?? {})
         } catch (e) {
             setError(e instanceof Error ? e.message : 'Could not load activity.')
         } finally {
@@ -145,16 +149,36 @@ export function ChannelOverview({ channel, onEdit, onResume, onUnhire, onSwap, b
     const warmup = channel.warmup
     const billing = channel.billing
     const setup = channel.setup
+    const dependencies = channel.dependencies
 
-    const latestThinking = entries.find(e => e.entry_type === 'agent_thinking')
-    const auditPlan = latestThinking && typeof latestThinking.data?.audit_plan === 'object'
-        ? latestThinking.data.audit_plan as {
-            observations?:   string[]
-            checklist?:      string[]
-            open_questions?: string[]
-            priorities?:     string[]
-          }
-        : null
+    // Latest "take" comes from session_summary entries written by the new
+    // AgentSessionExecutor. Falls back to the legacy agent_thinking entry
+    // for any campaigns that ran before the session refactor.
+    const latestSession = entries.find(e => e.entry_type === 'session_summary' || e.entry_type === 'agent_thinking')
+    const latestTakeText = (() => {
+        if (!latestSession) return null
+        const d = latestSession.data as { summary?: unknown; thinking?: unknown } | undefined
+        if (typeof d?.summary === 'string' && d.summary) return d.summary
+        if (typeof d?.thinking === 'string' && d.thinking) return d.thinking
+        return latestSession.summary ?? null
+    })()
+
+    // Cycle plan + current focus + open questions all live in memory now.
+    // The AgentSessionExecutor stamps cycle_plan / current_focus /
+    // open_questions_for_operator via memory_write tool calls.
+    const cyclePlan = (memory['cycle_plan'] ?? null) as null | {
+        goals?: string[]
+        priorities?: string[]
+        rationale?: string
+        set_at?: string
+    }
+    const currentFocus = (memory['current_focus'] ?? null) as null | {
+        theme?: string
+        reason?: string
+    }
+    const memoryOpenQuestions = (memory['open_questions_for_operator'] ?? null) as null | {
+        items?: { question?: string; asked_at?: string }[]
+    }
 
     // Match questions to answers by normalised question text. The backend
     // also stamps an MD5 hash for its own use; we match client-side by text
@@ -184,19 +208,26 @@ export function ChannelOverview({ channel, onEdit, onResume, onUnhire, onSwap, b
 
     const unansweredQuestions: { text: string; key: string }[] = []
     const answeredExchanges: { question: string; answer: string; at: string; key: string }[] = []
+    // New source: memory.open_questions_for_operator. Legacy source: any old
+    // agent_thinking ledger entries (kept so old campaigns still render Q/A).
+    const candidateQuestions: string[] = []
+    for (const item of memoryOpenQuestions?.items ?? []) {
+        if (typeof item?.question === 'string' && item.question) candidateQuestions.push(item.question)
+    }
     for (const e of entries) {
         if (e.entry_type !== 'agent_thinking') continue
         const plan = e.data?.audit_plan as { open_questions?: string[] } | undefined
-        for (const q of plan?.open_questions ?? []) {
-            const key = norm(q)
-            if (seenQuestions.has(key)) continue
-            seenQuestions.add(key)
-            const answered = answeredByText.get(key)
-            if (answered) {
-                answeredExchanges.push({ ...answered, key })
-            } else {
-                unansweredQuestions.push({ text: q, key })
-            }
+        for (const q of plan?.open_questions ?? []) candidateQuestions.push(q)
+    }
+    for (const q of candidateQuestions) {
+        const key = norm(q)
+        if (seenQuestions.has(key)) continue
+        seenQuestions.add(key)
+        const answered = answeredByText.get(key)
+        if (answered) {
+            answeredExchanges.push({ ...answered, key })
+        } else {
+            unansweredQuestions.push({ text: q, key })
         }
     }
     const automationEntries = entries.filter(e => e.entry_type.startsWith('automation_'))
@@ -213,8 +244,61 @@ export function ChannelOverview({ channel, onEdit, onResume, onUnhire, onSwap, b
     const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
     const daysRemaining = daysInMonth - now.getDate() + 1
 
+    const settingsUrl = window.BeaconData?.dashboardUrl
+        ? `${window.BeaconData.dashboardUrl}/dashboard/settings/connections`
+        : null
+
     return (
         <div className="flex-1 min-w-0 space-y-6">
+            {/* Dependency block — agent refuses to run sessions until required
+                connections are in place. Shown above everything so it can't be
+                missed. Optional/missing-but-recommended connections are shown
+                as a quieter line beneath. */}
+            {!dependencies.met && (
+                <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-5 space-y-3">
+                    <div className="flex items-start gap-3">
+                        <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5 text-amber-700" />
+                        <div className="flex-1 space-y-1">
+                            <p className="text-sm font-semibold text-amber-900">
+                                {agent.label} is paused — connect required data sources to start
+                            </p>
+                            <p className="text-xs text-amber-800">
+                                Sessions won't run, and credits won't be charged, until every required
+                                source is connected. {agent.label} resumes automatically the moment they are.
+                            </p>
+                        </div>
+                    </div>
+                    <ul className="space-y-1.5 ml-8">
+                        {dependencies.required.map(dep => (
+                            <li key={dep.provider} className="flex items-center gap-2 text-xs">
+                                {dep.connected ? (
+                                    <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+                                ) : (
+                                    <XCircle className="h-3.5 w-3.5 text-red-600" />
+                                )}
+                                <span className={dep.connected ? 'text-muted-foreground line-through' : 'text-amber-900 font-medium'}>
+                                    {dep.label}
+                                </span>
+                                {!dep.connected && (
+                                    <span className="text-[10px] uppercase tracking-wide text-amber-700">required</span>
+                                )}
+                            </li>
+                        ))}
+                    </ul>
+                    {settingsUrl && (
+                        <a
+                            href={settingsUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-900 underline underline-offset-2 ml-8"
+                        >
+                            Connect now in the Dashboard
+                            <ChevronRight className="h-3 w-3" />
+                        </a>
+                    )}
+                </div>
+            )}
+
             {/* Agent banner */}
             <div
                 className="rounded-2xl p-5 text-white flex items-center gap-5"
@@ -352,27 +436,25 @@ export function ChannelOverview({ channel, onEdit, onResume, onUnhire, onSwap, b
                             {agent.label}'s latest take
                         </h4>
                     </div>
-                    {latestThinking && (
+                    {latestSession && (
                         <span className="text-[11px] text-muted-foreground">
-                            {timeAgo(latestThinking.created_at)}
+                            {timeAgo(latestSession.created_at)}
                         </span>
                     )}
                 </div>
-                {latestThinking ? (
+                {latestTakeText ? (
                     <p className="text-sm leading-relaxed whitespace-pre-wrap">
-                        {typeof latestThinking.data?.thinking === 'string'
-                            ? latestThinking.data.thinking
-                            : (latestThinking.summary ?? '')}
+                        {latestTakeText}
                     </p>
                 ) : (
                     <p className="text-sm text-muted-foreground italic">
-                        {agent.label} hasn't run a turn yet. The first scheduled turn will write an overview here.
+                        {agent.label} hasn't run a session yet. The first scheduled session will write an overview here.
                     </p>
                 )}
             </div>
 
-            {/* Audit plan — structured output from warm-up turns */}
-            {auditPlan && (
+            {/* Cycle plan — sourced from agent memory (cycle_plan + current_focus) */}
+            {(cyclePlan || currentFocus) && (
                 <div className="rounded-xl border bg-white p-5 space-y-4">
                     <div className="flex items-center gap-2">
                         <ListChecks className="h-4 w-4" style={{ color: agent.color }} />
@@ -380,30 +462,28 @@ export function ChannelOverview({ channel, onEdit, onResume, onUnhire, onSwap, b
                             {agent.label}'s plan
                         </h4>
                     </div>
+                    {currentFocus?.theme && (
+                        <div className="text-sm">
+                            <p className="font-medium">{currentFocus.theme}</p>
+                            {currentFocus.reason && (
+                                <p className="text-xs text-muted-foreground mt-0.5">{currentFocus.reason}</p>
+                            )}
+                        </div>
+                    )}
+                    {cyclePlan?.rationale && (
+                        <p className="text-xs text-muted-foreground italic">{cyclePlan.rationale}</p>
+                    )}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                         <PlanList
-                            icon={<Eye className="h-3.5 w-3.5" />}
-                            label="Observations"
-                            items={auditPlan.observations ?? []}
+                            icon={<Target className="h-3.5 w-3.5" />}
+                            label="Goals"
+                            items={cyclePlan?.goals ?? []}
                             accent={agent.color}
                         />
                         <PlanList
                             icon={<ListChecks className="h-3.5 w-3.5" />}
-                            label="Checklist"
-                            items={auditPlan.checklist ?? []}
-                            accent={agent.color}
-                        />
-                        <PlanList
-                            icon={<HelpCircle className="h-3.5 w-3.5" />}
-                            label="Open questions"
-                            items={auditPlan.open_questions ?? []}
-                            accent={agent.color}
-                            emphasise
-                        />
-                        <PlanList
-                            icon={<Target className="h-3.5 w-3.5" />}
                             label="Priorities"
-                            items={auditPlan.priorities ?? []}
+                            items={cyclePlan?.priorities ?? []}
                             accent={agent.color}
                         />
                     </div>

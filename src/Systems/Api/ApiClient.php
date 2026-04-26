@@ -148,6 +148,16 @@ final class ApiClient
         return $this->request('GET', "marketing-channels/{$channel}/ledger?limit={$limit}", [], true, true);
     }
 
+    /**
+     * Fetch the agent's per-channel long-term memory (cycle plan, current
+     * focus, open questions, etc). Used by the Channel Overview to render
+     * the "current take" panel post-session-system refactor.
+     */
+    public function getMarketingChannelMemory(string $channel): ApiResponse
+    {
+        return $this->request('GET', "marketing-channels/{$channel}/memory", [], true, true);
+    }
+
     /** @param array<string, mixed> $payload */
     public function answerMarketingQuestion(string $channel, array $payload): ApiResponse
     {
