@@ -104,10 +104,29 @@ final class AdminAssets
             'siteName'      => get_bloginfo('name'),
             'pluginVersion' => defined('DR_BEACON_VERSION') ? DR_BEACON_VERSION : '',
             'beaconApiBase' => defined('DR_BEACON_API_BASE') ? rtrim(DR_BEACON_API_BASE, '/') . '/beacon/' . DR_BEACON_API_VERSION : '',
-            'dashboardUrl'  => defined('DR_BEACON_API_BASE') ? rtrim(DR_BEACON_API_BASE, '/') : '',
+            // dashboardUrl points at the human-facing Dashboard root, not the
+            // API base. DR_BEACON_API_BASE typically ends in /api (and may
+            // optionally include /v1) — strip both so links like
+            // {dashboardUrl}/dashboard/projects/overview resolve correctly.
+            'dashboardUrl'  => defined('DR_BEACON_API_BASE') ? self::deriveDashboardUrl(DR_BEACON_API_BASE) : '',
 
             // Per-user permanently dismissed onboarding screens
             'dismissedOnboardingScreens' => OnboardingController::dismissedForUser(get_current_user_id()),
         ];
+    }
+
+    /**
+     * Strip the trailing /api or /api/vN segment from the configured API base
+     * so `dashboardUrl` points at the human-facing Dashboard root.
+     */
+    private static function deriveDashboardUrl(string $apiBase): string
+    {
+        $base = rtrim($apiBase, '/');
+        // Trim any trailing /vN first (e.g. someone set DR_BEACON_API_BASE to
+        // include a version segment), then a trailing /api.
+        $base = preg_replace('#/v\d+$#', '', $base) ?? $base;
+        $base = preg_replace('#/api$#', '', $base) ?? $base;
+
+        return $base;
     }
 }
