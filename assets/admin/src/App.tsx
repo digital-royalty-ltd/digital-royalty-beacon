@@ -7,6 +7,7 @@ import { WorkshopPage }       from '@/pages/WorkshopPage'
 import { WorkshopToolPage }   from '@/pages/WorkshopToolPage'
 import { AutomationsPage }    from '@/pages/AutomationsPage'
 import { CampaignsPage }      from '@/pages/MissionControlPage'
+import { InsightsPage }       from '@/pages/InsightsPage'
 import { ConfigurationPage }  from '@/pages/ConfigurationPage'
 import { DebugPage }          from '@/pages/DebugPage'
 import { ApiPage }            from '@/pages/ApiPage'
@@ -58,6 +59,7 @@ const router = createHashRouter([
       },
       { path: 'automations',      element: <AutomationsPage />    },
       { path: 'campaigns',        element: <CampaignsPage /> },
+      { path: 'insights',         element: <InsightsPage /> },
       { path: 'configuration',    element: <ConfigurationPage />  },
       { path: 'debug',            element: <DebugPage />          },
       { path: 'api',              element: <ApiPage />            },

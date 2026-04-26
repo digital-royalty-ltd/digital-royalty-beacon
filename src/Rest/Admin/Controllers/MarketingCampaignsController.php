@@ -61,6 +61,30 @@ final class MarketingCampaignsController
             'permission_callback' => $perm,
         ]);
 
+        register_rest_route('beacon/v1', '/admin/marketing/campaigns/(?P<id>\d+)/sessions', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'getSessions'],
+            'permission_callback' => $perm,
+        ]);
+
+        register_rest_route('beacon/v1', '/admin/marketing/campaigns/(?P<id>\d+)/memory', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'getMemory'],
+            'permission_callback' => $perm,
+        ]);
+
+        register_rest_route('beacon/v1', '/admin/marketing/campaigns/(?P<id>\d+)/watcher-events', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'getWatcherEvents'],
+            'permission_callback' => $perm,
+        ]);
+
+        register_rest_route('beacon/v1', '/admin/marketing/campaigns/(?P<id>\d+)/action-log', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'getActionLog'],
+            'permission_callback' => $perm,
+        ]);
+
         register_rest_route('beacon/v1', '/admin/marketing/campaigns/(?P<id>\d+)/channels/(?P<channel>[a-z]+)', [
             'methods'             => 'PUT',
             'callback'            => [$this, 'updateChannel'],
@@ -125,6 +149,39 @@ final class MarketingCampaignsController
         $channel = (string) $request->get_param('channel');
         $payload = (array) $request->get_json_params();
         $res     = Services::apiClient()->updateMarketingCampaignChannel($id, $channel, $payload);
+        return $this->respond($res);
+    }
+
+    public function getSessions(WP_REST_Request $request): WP_REST_Response
+    {
+        $id    = (int) $request->get_param('id');
+        $limit = (int) ($request->get_param('limit') ?? 25);
+        $res   = Services::apiClient()->getMarketingCampaignSessions($id, $limit);
+        return $this->respond($res);
+    }
+
+    public function getMemory(WP_REST_Request $request): WP_REST_Response
+    {
+        $id  = (int) $request->get_param('id');
+        $res = Services::apiClient()->getMarketingCampaignMemory($id);
+        return $this->respond($res);
+    }
+
+    public function getWatcherEvents(WP_REST_Request $request): WP_REST_Response
+    {
+        $id        = (int) $request->get_param('id');
+        $limit     = (int) ($request->get_param('limit') ?? 50);
+        $severity  = is_string($request->get_param('severity')) ? $request->get_param('severity') : null;
+        $sinceDays = (int) ($request->get_param('since_days') ?? 30);
+        $res       = Services::apiClient()->getMarketingCampaignWatcherEvents($id, $limit, $severity, $sinceDays);
+        return $this->respond($res);
+    }
+
+    public function getActionLog(WP_REST_Request $request): WP_REST_Response
+    {
+        $id    = (int) $request->get_param('id');
+        $limit = (int) ($request->get_param('limit') ?? 50);
+        $res   = Services::apiClient()->getMarketingCampaignActionLog($id, $limit);
         return $this->respond($res);
     }
 

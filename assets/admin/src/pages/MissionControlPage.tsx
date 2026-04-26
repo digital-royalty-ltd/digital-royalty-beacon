@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
-import { Target, Loader2 } from 'lucide-react'
+import { Target, Loader2, Activity } from 'lucide-react'
 import { OnboardingOverlay } from '@/components/beacon/OnboardingOverlay'
 import { PremiumGate } from '@/components/beacon/PremiumGate'
+import { Button } from '@/components/ui/button'
 import { AiCharacterCard, AiCharacter } from '@/components/beacon/campaigns/AiCharacterCard'
 import { HireDialog, ChannelOption } from '@/components/beacon/campaigns/HireDialog'
 import { ChannelSidebar, ChannelEntry } from '@/components/beacon/campaigns/ChannelSidebar'
 import { ChannelDetail } from '@/components/beacon/campaigns/ChannelDetail'
+import { CampaignActivity } from '@/components/beacon/campaigns/CampaignActivity'
 import { api } from '@/lib/api'
 
 interface AiResponse {
@@ -34,6 +36,7 @@ export function CampaignsPage() {
   const [loading,      setLoading]      = useState(true)
   const [swapping,     setSwapping]     = useState(false)
   const [hireContext,  setHireContext]  = useState<{ agentKey: string; preselect: string[]; locked: boolean } | null>(null)
+  const [showActivity, setShowActivity] = useState(false)
 
   const loadChannels = async () => {
     try {
@@ -118,14 +121,32 @@ export function CampaignsPage() {
 
       <div className="space-y-8">
         {/* Header */}
-        <div>
-          <h2 className="text-xl font-semibold tracking-tight text-[#390d58]">Campaigns</h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            {hasAnyHire
-              ? 'Long-running campaigns executed by your marketing agents'
-              : "Hire your first marketing agent — each is a proven Digital Royalty methodology, executed by AI"}
-          </p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-semibold tracking-tight text-[#390d58]">Campaigns</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              {hasAnyHire
+                ? 'Long-running campaigns executed by your marketing agents'
+                : "Hire your first marketing agent — each is a proven Digital Royalty methodology, executed by AI"}
+            </p>
+          </div>
+          {hasAnyHire && (
+            <Button
+              variant={showActivity ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setShowActivity((v) => !v)}
+            >
+              <Activity className="h-3.5 w-3.5 mr-1.5" />
+              {showActivity ? 'Hide activity' : 'View activity'}
+            </Button>
+          )}
         </div>
+
+        {showActivity && hasAnyHire && (
+          <div className="rounded-xl border bg-muted/30 p-4">
+            <CampaignActivity />
+          </div>
+        )}
 
         {loading ? (
           <div className="flex items-center justify-center py-16">

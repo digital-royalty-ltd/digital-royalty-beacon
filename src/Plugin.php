@@ -11,6 +11,7 @@ use DigitalRoyalty\Beacon\Admin\Screens\ApiScreen;
 use DigitalRoyalty\Beacon\Admin\Screens\DevelopmentScreen;
 use DigitalRoyalty\Beacon\Admin\Screens\DebugScreen;
 use DigitalRoyalty\Beacon\Admin\Screens\HomeScreen;
+use DigitalRoyalty\Beacon\Admin\Screens\InsightsScreen;
 use DigitalRoyalty\Beacon\Admin\Screens\MissionControlScreen;
 use DigitalRoyalty\Beacon\Admin\Screens\ScreenRegistry;
 use DigitalRoyalty\Beacon\Admin\Screens\WorkshopScreen;
@@ -198,6 +199,7 @@ final class Plugin
             new WorkshopScreen(),
             new AutomationsScreen(),
             new MissionControlScreen(),
+            new InsightsScreen(),
             new ConfigurationScreen(),
             new DebugScreen(),
             new ApiScreen(),

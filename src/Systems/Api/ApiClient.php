@@ -186,6 +186,34 @@ final class ApiClient
         return $this->request('GET', "marketing-campaigns/{$id}/ledger?limit={$limit}", [], true, true);
     }
 
+    // ── Observability endpoints ─────────────────────────────────────────────
+
+    public function getMarketingCampaignSessions(int $id, int $limit = 25): ApiResponse
+    {
+        return $this->request('GET', "marketing-campaigns/{$id}/sessions?limit={$limit}", [], false, true);
+    }
+
+    public function getMarketingCampaignMemory(int $id): ApiResponse
+    {
+        return $this->request('GET', "marketing-campaigns/{$id}/memory", [], false, true);
+    }
+
+    public function getMarketingCampaignWatcherEvents(int $id, int $limit = 50, ?string $severity = null, int $sinceDays = 30): ApiResponse
+    {
+        $query = http_build_query(array_filter([
+            'limit' => $limit,
+            'severity' => $severity,
+            'since_days' => $sinceDays,
+        ], fn ($v) => $v !== null && $v !== ''));
+
+        return $this->request('GET', "marketing-campaigns/{$id}/watcher-events?{$query}", [], false, true);
+    }
+
+    public function getMarketingCampaignActionLog(int $id, int $limit = 50): ApiResponse
+    {
+        return $this->request('GET', "marketing-campaigns/{$id}/action-log?limit={$limit}", [], false, true);
+    }
+
     /** @param array<string, mixed> $payload */
     public function updateMarketingCampaignChannel(int $id, string $channel, array $payload): ApiResponse
     {
@@ -595,6 +623,107 @@ final class ApiClient
             includeClientMeta: true,
             requireAuth: true,
             timeout: 30
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Signals + Actions + Connections — see docs/BEACON_SIGNALS_AND_ACTIONS.md
+    // in the Laravel repo for the architecture and the full list of operations.
+    // -----------------------------------------------------------------------
+
+    /**
+     * Fetch the public-safe view of the Laravel signals registry.
+     */
+    public function getSignalsRegistry(): ApiResponse
+    {
+        return $this->request(
+            method: 'GET',
+            path: 'signals/registry',
+            payload: [],
+            includeClientMeta: false,
+            requireAuth: true,
+            timeout: 15
+        );
+    }
+
+    /**
+     * Call a Beacon signal (atomic data read with cache + credit gate).
+     *
+     * Synchronous helper-endpoint pattern. Response carries `data`, `cache`
+     * (hit/age/expires), and `cost` (credits_charged + would_charge_if_fresh).
+     *
+     * @param array<string, mixed> $args
+     * @param array{max_age_seconds?: int, force_fresh?: bool, cached_only?: bool} $options
+     */
+    public function callSignal(string $provider, string $operation, array $args = [], array $options = []): ApiResponse
+    {
+        $payload = ['args' => $args];
+
+        if (isset($options['max_age_seconds'])) {
+            $payload['max_age_seconds'] = (int) $options['max_age_seconds'];
+        }
+        if (! empty($options['force_fresh'])) {
+            $payload['force_fresh'] = true;
+        }
+        if (! empty($options['cached_only'])) {
+            $payload['cached_only'] = true;
+        }
+
+        return $this->request(
+            method: 'POST',
+            path: "signals/{$provider}/{$operation}",
+            payload: $payload,
+            includeClientMeta: false,
+            requireAuth: true,
+            timeout: 60
+        );
+    }
+
+    /**
+     * Dispatch a Beacon action (atomic write).
+     *
+     * Returns ActionResult-shaped response with status:
+     *   - executed: ran synchronously (external transport).
+     *   - queued: enqueued as automation_request kind=action for plugin polling (adapter transport).
+     *   - pending_approval: held for human review.
+     *
+     * @param array<string, mixed> $args
+     */
+    public function dispatchAction(string $provider, string $action, array $args = [], ?int $campaignId = null, ?string $channel = null): ApiResponse
+    {
+        $payload = ['args' => $args];
+        if ($campaignId !== null) {
+            $payload['campaign_id'] = $campaignId;
+        }
+        if ($channel !== null) {
+            $payload['channel'] = $channel;
+        }
+
+        return $this->request(
+            method: 'POST',
+            path: "actions/{$provider}/{$action}",
+            payload: $payload,
+            includeClientMeta: false,
+            requireAuth: true,
+            timeout: 60
+        );
+    }
+
+    /**
+     * List per-provider OAuth connection state for the project.
+     *
+     * Used by the plugin to poll connection status after deep-linking the user
+     * to a Dashboard OAuth ceremony.
+     */
+    public function listConnections(): ApiResponse
+    {
+        return $this->request(
+            method: 'GET',
+            path: 'connections',
+            payload: [],
+            includeClientMeta: false,
+            requireAuth: true,
+            timeout: 15
         );
     }
 

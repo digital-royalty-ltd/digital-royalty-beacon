@@ -5,6 +5,7 @@ namespace DigitalRoyalty\Beacon\Systems\Automations;
 use DigitalRoyalty\Beacon\Services\Services;
 use DigitalRoyalty\Beacon\Support\Enums\Logging\LogEventEnum;
 use DigitalRoyalty\Beacon\Support\Enums\Logging\LogScopeEnum;
+use DigitalRoyalty\Beacon\Systems\Actions\ActionInvokerRegistry;
 use DigitalRoyalty\Beacon\Systems\Api\ApiClient;
 use DigitalRoyalty\Beacon\Systems\Api\ApiResponse;
 
@@ -29,8 +30,14 @@ final class AutomationRequestPoller
     private const BATCH_SIZE = 5;
 
     public function __construct(
-        private readonly AutomationRegistry $registry
+        private readonly AutomationRegistry $registry,
+        private readonly ?ActionInvokerRegistry $actions = null,
     ) {}
+
+    private function actions(): ActionInvokerRegistry
+    {
+        return $this->actions ?? new ActionInvokerRegistry();
+    }
 
     public function register(): void
     {
@@ -157,16 +164,28 @@ final class AutomationRequestPoller
     {
         $id            = (string) $request['id'];
         $automationKey = (string) ($request['automation_key'] ?? '');
+        $kind          = (string) ($request['kind'] ?? 'workflow');
         $parameters    = is_array($request['parameters'] ?? null) ? $request['parameters'] : [];
         $agentKey      = $request['agent_id'] ?? null;
 
         $trace = ['id' => $id, 'key' => $automationKey, 'action' => 'skipped', 'message' => null];
 
-        $automation = $this->registry->find($automationKey);
-        if (! $automation) {
-            $this->reportFail($client, $id, "Unknown automation key: {$automationKey}");
+        // Resolve the right invoker before claiming — claiming an unknown
+        // workflow/action immediately fails it and consumes a retry slot.
+        if ($kind === 'action') {
+            $invoker = $this->actions()->find($automationKey);
+            if (! $invoker) {
+                $this->reportFail($client, $id, "Unknown action: {$automationKey}");
 
-            return ['id' => $id, 'key' => $automationKey, 'action' => 'rejected_unknown_key', 'message' => null];
+                return ['id' => $id, 'key' => $automationKey, 'action' => 'rejected_unknown_action', 'message' => null];
+            }
+        } else {
+            $invoker = $this->registry->find($automationKey);
+            if (! $invoker) {
+                $this->reportFail($client, $id, "Unknown automation key: {$automationKey}");
+
+                return ['id' => $id, 'key' => $automationKey, 'action' => 'rejected_unknown_key', 'message' => null];
+            }
         }
 
         // Claim first — another poller may have grabbed it in a race.
@@ -183,15 +202,15 @@ final class AutomationRequestPoller
             : InvocationActor::api();
 
         try {
-            $result = $automation->invoke($parameters, $actor);
+            $result = $invoker->invoke($parameters, $actor);
 
             if ($result->ok) {
                 $client->completeAutomationRequest($id, $result->toArray());
-                $trace['action'] = 'completed';
+                $trace['action'] = $kind === 'action' ? 'action_completed' : 'completed';
                 $trace['message'] = $result->message;
             } else {
                 $client->failAutomationRequest($id, $result->message ?? 'Automation returned failure.');
-                $trace['action'] = 'failed';
+                $trace['action'] = $kind === 'action' ? 'action_failed' : 'failed';
                 $trace['message'] = $result->message;
             }
         } catch (\Throwable $e) {
