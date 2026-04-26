@@ -36,6 +36,11 @@ jobs:
           cp -r src build/digital-royalty-beacon/
           cp -r dist build/digital-royalty-beacon/
 
+          # Static images (agent avatars). Only ship `assets/images/` —
+          # `assets/admin/` is the React source and shouldn't be in the release.
+          mkdir -p build/digital-royalty-beacon/assets
+          cp -r assets/images build/digital-royalty-beacon/assets/
+
           cd build
           zip -r ../digital-royalty-beacon.zip digital-royalty-beacon/
 
