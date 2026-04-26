@@ -158,6 +158,40 @@ final class ApiClient
         return $this->request('GET', "marketing-channels/{$channel}/memory", [], true, true);
     }
 
+    /**
+     * Strike a session's ledger entries from future agent prompts (and
+     * cancel any pending automations the session queued).
+     */
+    public function strikeMarketingSession(string $channel, string $sessionId, ?string $reason = null, ?int $userId = null): ApiResponse
+    {
+        $payload = [];
+        if ($reason !== null && $reason !== '') {
+            $payload['reason'] = $reason;
+        }
+        if ($userId !== null) {
+            $payload['user_id'] = $userId;
+        }
+
+        return $this->request(
+            'POST',
+            "marketing-channels/{$channel}/sessions/".rawurlencode($sessionId).'/strike',
+            $payload,
+            true,
+            true
+        );
+    }
+
+    public function unstrikeMarketingSession(string $channel, string $sessionId): ApiResponse
+    {
+        return $this->request(
+            'POST',
+            "marketing-channels/{$channel}/sessions/".rawurlencode($sessionId).'/unstrike',
+            [],
+            true,
+            true
+        );
+    }
+
     /** @param array<string, mixed> $payload */
     public function answerMarketingQuestion(string $channel, array $payload): ApiResponse
     {

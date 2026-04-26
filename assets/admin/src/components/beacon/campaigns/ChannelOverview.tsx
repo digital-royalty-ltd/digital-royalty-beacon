@@ -41,11 +41,14 @@ interface LedgerEntry {
     entry_type:              string
     title:                   string
     summary:                 string | null
-    data:                    Record<string, unknown>
+    data:                    Record<string, unknown> | null
     agent:                   { key: string; name: string } | null
     created_at:              string
     related_request_id?:     string | null
     related_request_status?: RequestStatus | null
+    session_id?:             string | null
+    struck_at?:              string | null
+    struck_reason?:          string | null
 }
 
 /**
@@ -107,6 +110,8 @@ export function ChannelOverview({ channel, onEdit, onResume, onUnhire, onSwap, b
     const [sendingHash, setSending]   = useState<string | null>(null)
     const [activeFilters, setFilters] = useState<Set<string>>(new Set(['all']))
     const [capabilitiesOpen, setCapabilitiesOpen] = useState(false)
+    const [showStruck, setShowStruck]             = useState(false)
+    const [strikingSession, setStriking]          = useState<string | null>(null)
 
     const loadLedger = async () => {
         setLoading(true)
@@ -196,7 +201,7 @@ export function ChannelOverview({ channel, onEdit, onResume, onUnhire, onSwap, b
 
     const seenQuestions = new Set<string>()
     // Apply active filters to the ledger entries.
-    const filteredEntries = activeFilters.has('all')
+    const baseFiltered = activeFilters.has('all')
         ? entries
         : entries.filter(e => {
             for (const bucketKey of activeFilters) {
@@ -205,6 +210,45 @@ export function ChannelOverview({ channel, onEdit, onResume, onUnhire, onSwap, b
             }
             return false
         })
+
+    // Hide struck rows by default — they're archived. Operator can toggle to
+    // see them dimmed (with strikethrough) for audit purposes.
+    const filteredEntries = showStruck
+        ? baseFiltered
+        : baseFiltered.filter(e => !e.struck_at)
+    const struckCount = entries.filter(e => e.struck_at).length
+
+    const strikeSession = async (sessionId: string) => {
+        if (!sessionId) return
+        const reason = window.prompt('Optional: reason for striking this session?', '') ?? ''
+        if (reason === null) return
+        if (!window.confirm('Strike this session from the agent\'s record? Pending automations from it will be cancelled. Reversible.')) return
+        setStriking(sessionId)
+        try {
+            await api.post(`/campaigns/channels/${channel.key}/sessions/${encodeURIComponent(sessionId)}/strike`, {
+                reason: reason.trim() || undefined,
+            })
+            await loadLedger()
+        } catch (e) {
+            setError(e instanceof Error ? e.message : 'Could not strike session.')
+        } finally {
+            setStriking(null)
+        }
+    }
+
+    const unstrikeSession = async (sessionId: string) => {
+        if (!sessionId) return
+        if (!window.confirm('Restore this session to the agent\'s record? Cancelled automations will not be re-queued.')) return
+        setStriking(sessionId)
+        try {
+            await api.post(`/campaigns/channels/${channel.key}/sessions/${encodeURIComponent(sessionId)}/unstrike`)
+            await loadLedger()
+        } catch (e) {
+            setError(e instanceof Error ? e.message : 'Could not unstrike session.')
+        } finally {
+            setStriking(null)
+        }
+    }
 
     const unansweredQuestions: { text: string; key: string }[] = []
     const answeredExchanges: { question: string; answer: string; at: string; key: string }[] = []
@@ -596,6 +640,19 @@ export function ChannelOverview({ channel, onEdit, onResume, onUnhire, onSwap, b
                                 </button>
                             )
                         })}
+                        {struckCount > 0 && (
+                            <button
+                                onClick={() => setShowStruck(v => !v)}
+                                className={`text-[11px] px-2 py-1 rounded-full border transition-colors ${
+                                    showStruck
+                                        ? 'border-amber-400 bg-amber-50 text-amber-900'
+                                        : 'border-border text-muted-foreground hover:border-amber-300'
+                                }`}
+                                title="Show or hide struck entries"
+                            >
+                                {showStruck ? 'Hide struck' : `Show struck (${struckCount})`}
+                            </button>
+                        )}
                         <button
                             onClick={loadLedger}
                             className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1 ml-1"
@@ -620,7 +677,14 @@ export function ChannelOverview({ channel, onEdit, onResume, onUnhire, onSwap, b
                 ) : (
                     <ul className="divide-y">
                         {filteredEntries.map(entry => (
-                            <LedgerRow key={entry.id} entry={entry} accent={agent.color} />
+                            <LedgerRow
+                                key={entry.id}
+                                entry={entry}
+                                accent={agent.color}
+                                onStrike={strikeSession}
+                                onUnstrike={unstrikeSession}
+                                striking={strikingSession === entry.session_id}
+                            />
                         ))}
                     </ul>
                 )}
@@ -773,20 +837,40 @@ const REQUEST_STATUS_STYLE: Record<string, string> = {
     failed:    'bg-red-100 text-red-900',
 }
 
-function LedgerRow({ entry, accent }: { entry: LedgerEntry; accent: string }) {
+interface LedgerRowProps {
+    entry:      LedgerEntry
+    accent:     string
+    onStrike?:  (sessionId: string) => void
+    onUnstrike?: (sessionId: string) => void
+    striking?:  boolean
+}
+
+function LedgerRow({ entry, accent, onStrike, onUnstrike, striking }: LedgerRowProps) {
     const [open, setOpen] = useState(false)
     const meta = ENTRY_META[entry.entry_type] ?? { icon: <Activity className="h-3.5 w-3.5" />, color: 'text-muted-foreground' }
     const reqStatus = entry.related_request_status
-    const hasDetail = Object.keys(entry.data ?? {}).length > 0 || (entry.summary?.length ?? 0) > 240
+    const isStruck = !!entry.struck_at
+    const hasDetail = !isStruck && (Object.keys(entry.data ?? {}).length > 0 || (entry.summary?.length ?? 0) > 240)
+
+    // Only the canonical session-summary entry gets a strike button — striking
+    // it covers every other ledger row and pending automation from the same
+    // session via the shared session_id.
+    const canStrike = entry.entry_type === 'session_summary' && entry.session_id && !isStruck && onStrike
+    const canUnstrike = isStruck && entry.session_id && onUnstrike
 
     return (
-        <li className={`px-5 py-3 hover:bg-muted/30 ${hasDetail ? 'cursor-pointer' : ''}`}
+        <li className={`px-5 py-3 hover:bg-muted/30 ${hasDetail ? 'cursor-pointer' : ''} ${isStruck ? 'opacity-60' : ''}`}
             onClick={hasDetail ? () => setOpen(o => !o) : undefined}>
             <div className="flex items-start gap-3">
                 <div className={`shrink-0 mt-0.5 ${meta.color}`}>{meta.icon}</div>
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-sm font-medium truncate">{entry.title}</p>
+                        <p className={`text-sm font-medium truncate ${isStruck ? 'line-through' : ''}`}>{entry.title}</p>
+                        {isStruck && (
+                            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-900">
+                                struck
+                            </span>
+                        )}
                         {reqStatus && (
                             <span
                                 className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${REQUEST_STATUS_STYLE[reqStatus.status] ?? 'bg-slate-100 text-slate-700'}`}
@@ -800,23 +884,48 @@ function LedgerRow({ entry, accent }: { entry: LedgerEntry; accent: string }) {
                             <ChevronRight className={`h-3 w-3 text-muted-foreground ml-auto transition-transform ${open ? 'rotate-90' : ''}`} />
                         )}
                     </div>
-                    {entry.summary && !open && (
+                    {isStruck && entry.struck_reason && (
+                        <p className="text-[11px] text-muted-foreground mt-0.5 italic">
+                            Struck: {entry.struck_reason}
+                        </p>
+                    )}
+                    {!isStruck && entry.summary && !open && (
                         <p className="text-xs text-muted-foreground mt-0.5 whitespace-pre-wrap line-clamp-3">
                             {entry.summary}
                         </p>
                     )}
-                    {reqStatus?.error && !open && (
+                    {!isStruck && reqStatus?.error && !open && (
                         <p className="text-[11px] text-red-600 mt-1 line-clamp-2">{reqStatus.error}</p>
                     )}
                     <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-1.5">
                         {entry.agent && <span style={{ color: accent }}>{entry.agent.name}</span>}
                         {entry.channel && <span>· {entry.channel}</span>}
                         <span className="ml-auto">{timeAgo(entry.created_at)}</span>
+                        {canStrike && (
+                            <button
+                                onClick={e => { e.stopPropagation(); onStrike!(entry.session_id!) }}
+                                disabled={striking}
+                                className="text-[11px] text-amber-700 hover:text-amber-900 underline-offset-2 hover:underline disabled:opacity-50"
+                                title="Hide this session from future agent prompts and cancel any pending automations from it"
+                            >
+                                {striking ? 'Striking…' : 'Strike'}
+                            </button>
+                        )}
+                        {canUnstrike && (
+                            <button
+                                onClick={e => { e.stopPropagation(); onUnstrike!(entry.session_id!) }}
+                                disabled={striking}
+                                className="text-[11px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline disabled:opacity-50"
+                                title="Restore this session to the agent's record"
+                            >
+                                {striking ? 'Restoring…' : 'Unstrike'}
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>
 
-            {open && <LedgerRowDetail entry={entry} reqStatus={reqStatus} />}
+            {open && !isStruck && <LedgerRowDetail entry={entry} reqStatus={reqStatus} />}
         </li>
     )
 }

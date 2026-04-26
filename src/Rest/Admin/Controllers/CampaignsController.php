@@ -67,6 +67,18 @@ final class CampaignsController
             'permission_callback' => $perm,
         ]);
 
+        register_rest_route('beacon/v1', '/admin/campaigns/channels/(?P<channel>[a-z_]+)/sessions/(?P<session>[a-f0-9-]+)/strike', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'strikeSession'],
+            'permission_callback' => $perm,
+        ]);
+
+        register_rest_route('beacon/v1', '/admin/campaigns/channels/(?P<channel>[a-z_]+)/sessions/(?P<session>[a-f0-9-]+)/unstrike', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'unstrikeSession'],
+            'permission_callback' => $perm,
+        ]);
+
         register_rest_route('beacon/v1', '/admin/campaigns/channels/(?P<channel>[a-z_]+)/answers', [
             'methods'             => 'POST',
             'callback'            => [$this, 'answerChannelQuestion'],
@@ -229,6 +241,33 @@ final class CampaignsController
         $channel = (string) $request->get_param('channel');
 
         $res = Services::apiClient()->getMarketingChannelMemory($channel);
+
+        return $this->forward($res);
+    }
+
+    public function strikeSession(WP_REST_Request $request): WP_REST_Response
+    {
+        $channel = (string) $request->get_param('channel');
+        $session = (string) $request->get_param('session');
+        $body = (array) $request->get_json_params();
+        $reason = isset($body['reason']) && is_string($body['reason']) ? trim($body['reason']) : null;
+
+        // Stamp the WP user id so Laravel's audit trail can attribute the
+        // strike. Laravel doesn't share user ids with the plugin, but we
+        // record the WP-side id alongside the operator's reason.
+        $userId = get_current_user_id() ?: null;
+
+        $res = Services::apiClient()->strikeMarketingSession($channel, $session, $reason, $userId);
+
+        return $this->forward($res);
+    }
+
+    public function unstrikeSession(WP_REST_Request $request): WP_REST_Response
+    {
+        $channel = (string) $request->get_param('channel');
+        $session = (string) $request->get_param('session');
+
+        $res = Services::apiClient()->unstrikeMarketingSession($channel, $session);
 
         return $this->forward($res);
     }
