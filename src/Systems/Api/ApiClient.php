@@ -159,6 +159,37 @@ final class ApiClient
     }
 
     /**
+     * Fetch the channel's onboarding schema + the operator's current
+     * answers. The wizard renders dynamically from this so adding new
+     * questions on the Laravel side flows through without a plugin
+     * release.
+     */
+    public function getChannelOnboarding(string $channel): ApiResponse
+    {
+        return $this->request('GET', "marketing-channels/{$channel}/onboarding", [], true, true);
+    }
+
+    /**
+     * Submit channel onboarding answers. On success the channel
+     * transitions out of awaiting_onboarding and the agent can run.
+     *
+     * @param array<string, mixed> $answers
+     */
+    public function submitChannelOnboarding(string $channel, array $answers): ApiResponse
+    {
+        return $this->request('POST', "marketing-channels/{$channel}/onboarding", ['answers' => $answers], true, true);
+    }
+
+    /**
+     * Fetch the channel's open commitments and recently-resolved ones for
+     * the read-only operator panel.
+     */
+    public function getChannelCommitments(string $channel): ApiResponse
+    {
+        return $this->request('GET', "marketing-channels/{$channel}/commitments", [], true, true);
+    }
+
+    /**
      * Strike a session's ledger entries from future agent prompts (and
      * cancel any pending automations the session queued).
      */

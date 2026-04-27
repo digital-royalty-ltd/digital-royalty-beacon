@@ -85,6 +85,25 @@ final class CampaignsController
             'permission_callback' => $perm,
         ]);
 
+        register_rest_route('beacon/v1', '/admin/campaigns/channels/(?P<channel>[a-z_]+)/onboarding', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [$this, 'getChannelOnboarding'],
+                'permission_callback' => $perm,
+            ],
+            [
+                'methods'             => 'POST',
+                'callback'            => [$this, 'submitChannelOnboarding'],
+                'permission_callback' => $perm,
+            ],
+        ]);
+
+        register_rest_route('beacon/v1', '/admin/campaigns/channels/(?P<channel>[a-z_]+)/commitments', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'getChannelCommitments'],
+            'permission_callback' => $perm,
+        ]);
+
         // Diagnostics: run a heartbeat synchronously and return the full trace.
         register_rest_route('beacon/v1', '/admin/campaigns/diagnostics/heartbeat', [
             'methods'             => 'POST',
@@ -278,6 +297,39 @@ final class CampaignsController
         $params = (array) $request->get_json_params();
 
         $res = Services::apiClient()->answerMarketingQuestion($channel, $params);
+
+        return $this->forward($res);
+    }
+
+    public function getChannelOnboarding(WP_REST_Request $request): WP_REST_Response
+    {
+        $channel = (string) $request->get_param('channel');
+
+        $res = Services::apiClient()->getChannelOnboarding($channel);
+
+        return $this->forward($res);
+    }
+
+    public function submitChannelOnboarding(WP_REST_Request $request): WP_REST_Response
+    {
+        $channel = (string) $request->get_param('channel');
+        $body = (array) $request->get_json_params();
+        $answers = is_array($body['answers'] ?? null) ? $body['answers'] : [];
+
+        $res = Services::apiClient()->submitChannelOnboarding($channel, $answers);
+
+        // Successful submission flips the channel out of awaiting_onboarding
+        // and Laravel returns the fresh channels list — enrich it with
+        // local agent meta so the React side sees the same shape it does
+        // from /admin/campaigns/channels.
+        return $this->enrichChannels($this->forward($res));
+    }
+
+    public function getChannelCommitments(WP_REST_Request $request): WP_REST_Response
+    {
+        $channel = (string) $request->get_param('channel');
+
+        $res = Services::apiClient()->getChannelCommitments($channel);
 
         return $this->forward($res);
     }
