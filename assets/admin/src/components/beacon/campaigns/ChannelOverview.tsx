@@ -312,19 +312,21 @@ export function ChannelOverview({ channel, onEdit, onResume, onUnhire, onSwap, b
                             </p>
                         </div>
                     </div>
-                    <ul className="space-y-1.5 ml-8">
+                    <ul className="space-y-2 ml-8">
                         {dependencies.required.map(dep => (
-                            <li key={dep.provider} className="flex items-center gap-2 text-xs">
-                                {dep.connected ? (
-                                    <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
-                                ) : (
-                                    <XCircle className="h-3.5 w-3.5 text-red-600" />
-                                )}
-                                <span className={dep.connected ? 'text-muted-foreground line-through' : 'text-amber-900 font-medium'}>
-                                    {dep.label}
-                                </span>
-                                {!dep.connected && (
-                                    <span className="text-[10px] uppercase tracking-wide text-amber-700">required</span>
+                            <li key={dep.provider} className="text-xs">
+                                <div className="flex items-center gap-2">
+                                    {dep.status === 'ok' ? (
+                                        <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+                                    ) : (
+                                        <XCircle className="h-3.5 w-3.5 text-red-600" />
+                                    )}
+                                    <span className={dep.status === 'ok' ? 'text-muted-foreground line-through' : 'text-amber-900 font-medium'}>
+                                        {dep.label}
+                                    </span>
+                                </div>
+                                {dep.status !== 'ok' && dep.hint && (
+                                    <p className="ml-5.5 text-[11px] text-amber-800 mt-0.5 leading-relaxed">{dep.hint}</p>
                                 )}
                             </li>
                         ))}

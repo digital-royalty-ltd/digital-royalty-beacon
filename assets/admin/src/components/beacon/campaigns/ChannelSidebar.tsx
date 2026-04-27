@@ -35,16 +35,19 @@ export interface ChannelPacing {
 }
 
 export interface ChannelDependency {
-  provider:  string
-  label:     string
-  connected: boolean
+  provider: string
+  label:    string
+  status:   'ok' | 'oauth_missing' | 'oauth_expired' | 'oauth_unauthorized' | 'oauth_token_unreadable' | 'api_disabled' | 'api_unreachable' | 'api_misconfigured' | 'entity_unselected'
+  reason:   string | null
+  hint:     string | null
 }
 
 export interface ChannelDependencies {
-  met:              boolean
-  required:         ChannelDependency[]
-  optional:         ChannelDependency[]
-  missing_required: string[]
+  met:                       boolean
+  required:                  ChannelDependency[]
+  optional:                  ChannelDependency[]
+  automation_catalogue:      { published: boolean; last_seen: string | null }
+  missing_required_summary:  string[]
 }
 
 export interface ChannelEntry {
