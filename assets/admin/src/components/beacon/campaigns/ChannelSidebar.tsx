@@ -10,6 +10,8 @@ export interface ChannelSetup {
   cadence:           'daily' | 'weekly' | 'on_demand'
   risk_tolerance:    number | null
   guardrails:        string | null
+  channel_setup:     Record<string, unknown>
+  onboarded_at:      string | null
 }
 
 export interface ChannelWarmup {
@@ -21,7 +23,7 @@ export interface ChannelWarmup {
 }
 
 export interface ChannelBilling {
-  status:                 'active' | 'monitor_mode' | 'paused_no_credits'
+  status:                 'active' | 'monitor_mode' | 'paused_no_credits' | 'awaiting_onboarding' | 'awaiting_dependencies'
   monthly_fee:            number
   monthly_work_cap:       number | null
   monthly_work_spent:     number

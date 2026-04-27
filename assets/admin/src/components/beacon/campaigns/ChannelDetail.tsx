@@ -3,6 +3,7 @@ import { AiCharacterCard, AiCharacter } from './AiCharacterCard'
 import type { ChannelEntry } from './ChannelSidebar'
 import { ChannelSetupForm } from './ChannelSetupForm'
 import { ChannelOverview } from './ChannelOverview'
+import { ChannelOnboardingWizard } from './ChannelOnboardingWizard'
 import { api } from '@/lib/api'
 
 interface Props {
@@ -18,7 +19,7 @@ interface Props {
   forcePicker?: boolean
 }
 
-type ViewMode = 'overview' | 'setup'
+type ViewMode = 'overview' | 'setup' | 'onboarding'
 
 /**
  * Right-hand detail pane for the campaigns screen.
@@ -29,11 +30,18 @@ type ViewMode = 'overview' | 'setup'
  *  - Setup: the full config form — entered via "Edit setup", exits on save
  */
 export function ChannelDetail({ channel, characters, onPickAgent, onUpdated, onRequestSwap, forcePicker }: Props) {
-  const [view, setView]           = useState<ViewMode>('overview')
+  // Default into onboarding when the channel is awaiting it. The
+  // executor refuses to run sessions in this state, so leading the
+  // operator straight to the wizard is the only useful starting point.
+  const initialView: ViewMode = channel.billing?.status === 'awaiting_onboarding' ? 'onboarding' : 'overview'
+  const [view, setView]           = useState<ViewMode>(initialView)
   const [busy, setBusy]           = useState<null | 'resume' | 'unhire'>(null)
 
-  // Reset to overview whenever the selected channel changes.
-  useEffect(() => { setView('overview') }, [channel.key, channel.agent?.key])
+  // Reset whenever the selected channel changes — onboarding-awaiting
+  // channels jump straight to the wizard, others to the overview.
+  useEffect(() => {
+    setView(channel.billing?.status === 'awaiting_onboarding' ? 'onboarding' : 'overview')
+  }, [channel.key, channel.agent?.key, channel.billing?.status])
 
   const handleResume = async () => {
     setBusy('resume')
@@ -81,6 +89,21 @@ export function ChannelDetail({ channel, characters, onPickAgent, onUpdated, onR
     )
   }
 
+  // Onboarding — first-time on awaiting_onboarding, edit when re-opened.
+  if (view === 'onboarding') {
+    const isFirstTime = channel.billing?.status === 'awaiting_onboarding'
+    return (
+      <div className="flex-1 min-w-0">
+        <ChannelOnboardingWizard
+          channel={channel}
+          mode={isFirstTime ? 'first-time' : 'edit'}
+          onComplete={(updated) => { onUpdated(updated); setView('overview') }}
+          onCancel={isFirstTime ? undefined : () => setView('overview')}
+        />
+      </div>
+    )
+  }
+
   // Hired channel — overview by default, setup form on edit.
   if (view === 'setup') {
     return (
@@ -90,6 +113,7 @@ export function ChannelDetail({ channel, characters, onPickAgent, onUpdated, onR
           onUpdated={(updated) => { onUpdated(updated); setView('overview') }}
           onRequestSwap={onRequestSwap}
           onCancel={() => setView('overview')}
+          onEditOnboarding={() => setView('onboarding')}
         />
       </div>
     )
@@ -102,6 +126,7 @@ export function ChannelDetail({ channel, characters, onPickAgent, onUpdated, onR
       onResume={handleResume}
       onUnhire={handleUnhire}
       onSwap={onRequestSwap}
+      onStartOnboarding={() => setView('onboarding')}
       busy={busy}
     />
   )

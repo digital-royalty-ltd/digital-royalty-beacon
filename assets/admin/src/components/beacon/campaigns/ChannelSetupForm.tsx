@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Loader2, AlertTriangle, Info, RotateCcw, X } from 'lucide-react'
+import { Loader2, AlertTriangle, Info, RotateCcw, X, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 import type { ChannelEntry, ChannelSetup } from './ChannelSidebar'
@@ -12,6 +12,8 @@ interface Props {
   onRequestSwap: () => void
   /** Fired when the user clicks Cancel — parent switches back to overview. */
   onCancel:    () => void
+  /** Fired when the user clicks "Edit answers" in the brand context section. */
+  onEditOnboarding: () => void
 }
 
 const MANAGEMENT_FEE_PER_CHANNEL = 50_000
@@ -86,7 +88,7 @@ function toPayload(form: FormState, initial: FormState): Record<string, unknown>
  * button triggers a confirmation modal before persisting warm-up-resetting
  * changes.
  */
-export function ChannelSetupForm({ channel, onUpdated, onCancel }: Props) {
+export function ChannelSetupForm({ channel, onUpdated, onCancel, onEditOnboarding }: Props) {
   const [initial, setInitial] = useState<FormState>(asInitial(channel.setup))
   const [form, setForm]       = useState<FormState>(asInitial(channel.setup))
   const [saving, setSaving]   = useState(false)
@@ -299,6 +301,12 @@ export function ChannelSetupForm({ channel, onUpdated, onCancel }: Props) {
           </Field>
         </Section>
 
+        {/* ── Brand context (channel onboarding answers) ─ */}
+        <BrandContextSection
+          channel={channel}
+          onEdit={onEditOnboarding}
+        />
+
         {/* ── Guardrails ───────────────────────────── */}
         <Section title="Guardrails">
           <Field label="Never do / avoid" hint="Hard rules. The agent reads these on every turn.">
@@ -389,6 +397,50 @@ function Section({ title, children }: { title: string; children: React.ReactNode
     <section className="rounded-xl border bg-white p-5 space-y-4">
       <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h4>
       {children}
+    </section>
+  )
+}
+
+function BrandContextSection({
+  channel,
+  onEdit,
+}: {
+  channel: ChannelEntry
+  onEdit:  () => void
+}) {
+  const setup = channel.setup?.channel_setup ?? {}
+  const entries = Object.entries(setup).filter(([, v]) => v !== null && v !== undefined && v !== '' && !(Array.isArray(v) && v.length === 0))
+
+  return (
+    <section className="rounded-xl border bg-white p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Brand context</h4>
+        <Button variant="outline" size="sm" onClick={onEdit}>
+          <Pencil className="h-3.5 w-3.5 mr-1.5" />
+          Edit answers
+        </Button>
+      </div>
+
+      {entries.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          No onboarding answers yet — click "Edit answers" to fill them in. Without these, the agent runs on guesswork.
+        </p>
+      ) : (
+        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
+          {entries.map(([key, value]) => (
+            <div key={key} className="min-w-0">
+              <dt className="text-[11px] font-medium text-muted-foreground capitalize">
+                {key.replace(/_/g, ' ')}
+              </dt>
+              <dd className="text-xs mt-0.5 break-words">
+                {Array.isArray(value)
+                  ? (value as unknown[]).map(v => String(v)).join(', ')
+                  : String(value)}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
     </section>
   )
 }

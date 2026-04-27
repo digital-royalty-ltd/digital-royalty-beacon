@@ -51,6 +51,20 @@ interface LedgerEntry {
     struck_reason?:          string | null
 }
 
+interface Commitment {
+    id:                string
+    status:            'open' | 'resolved_success' | 'resolved_failed' | 'abandoned'
+    opportunity:       string
+    action:            string
+    expected_signal:   string
+    measure_at:        string
+    is_overdue:        boolean
+    resolution_notes:  string | null
+    evidence:          Record<string, unknown> | null
+    resolved_at:       string | null
+    created_at:        string
+}
+
 /**
  * Activity-timeline filter buckets. Each bucket matches a set of entry_type
  * prefixes or exact types. Multi-select; "All" is mutually exclusive with
@@ -81,12 +95,13 @@ const FILTER_BUCKETS: { key: string; label: string; match: (type: string) => boo
 ]
 
 interface Props {
-    channel:   ChannelEntry
-    onEdit:    () => void
-    onResume:  () => Promise<void>
-    onUnhire:  () => Promise<void>
-    onSwap:    () => void
-    busy:      null | 'resume' | 'unhire'
+    channel:           ChannelEntry
+    onEdit:            () => void
+    onResume:          () => Promise<void>
+    onUnhire:          () => Promise<void>
+    onSwap:            () => void
+    onStartOnboarding: () => void
+    busy:              null | 'resume' | 'unhire'
 }
 
 /**
@@ -101,7 +116,7 @@ interface Props {
  *   - Activity timeline — recent ledger entries with icons
  *   - Actions: Edit setup / Swap agent / Unhire
  */
-export function ChannelOverview({ channel, onEdit, onResume, onUnhire, onSwap, busy }: Props) {
+export function ChannelOverview({ channel, onEdit, onResume, onUnhire, onSwap, onStartOnboarding, busy }: Props) {
     const [entries, setEntries]       = useState<LedgerEntry[]>([])
     const [memory, setMemory]         = useState<Record<string, unknown>>({})
     const [loading, setLoading]       = useState(true)
@@ -112,20 +127,26 @@ export function ChannelOverview({ channel, onEdit, onResume, onUnhire, onSwap, b
     const [capabilitiesOpen, setCapabilitiesOpen] = useState(false)
     const [showStruck, setShowStruck]             = useState(false)
     const [strikingSession, setStriking]          = useState<string | null>(null)
+    const [commitments, setCommitments]           = useState<{ open: Commitment[]; recently_resolved: Commitment[] }>({ open: [], recently_resolved: [] })
 
     const loadLedger = async () => {
         setLoading(true)
         setError(null)
         try {
-            // Ledger and memory are fetched in parallel — both populate
-            // distinct panels (ledger → activity timeline; memory → agent's
-            // current take / cycle plan / open questions).
-            const [ledgerRes, memoryRes] = await Promise.all([
+            // Ledger, memory, and commitments are fetched in parallel — each
+            // populates a distinct panel (ledger → activity timeline;
+            // memory → agent's current take; commitments → follow-up tracker).
+            const [ledgerRes, memoryRes, commitmentsRes] = await Promise.all([
                 api.get<{ entries: LedgerEntry[] }>(`/campaigns/channels/${channel.key}/ledger?limit=50`),
                 api.get<{ memory: Record<string, unknown> }>(`/campaigns/channels/${channel.key}/memory`).catch(() => ({ memory: {} })),
+                api.get<{ open: Commitment[]; recently_resolved: Commitment[] }>(`/campaigns/channels/${channel.key}/commitments`).catch(() => ({ open: [], recently_resolved: [] })),
             ])
             setEntries(ledgerRes.entries ?? [])
             setMemory((memoryRes as { memory?: Record<string, unknown> }).memory ?? {})
+            setCommitments({
+                open: commitmentsRes.open ?? [],
+                recently_resolved: commitmentsRes.recently_resolved ?? [],
+            })
         } catch (e) {
             setError(e instanceof Error ? e.message : 'Could not load activity.')
         } finally {
@@ -389,13 +410,32 @@ export function ChannelOverview({ channel, onEdit, onResume, onUnhire, onSwap, b
                 </div>
             )}
 
-            {billing && billing.status !== 'active' && (
+            {billing?.status === 'awaiting_onboarding' && (
+                <div className="rounded-lg border-2 border-[#390d58]/20 bg-[#390d58]/5 px-4 py-3 text-xs text-[#390d58] flex items-start gap-3">
+                    <Info className="h-4 w-4 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                        <p className="font-semibold mb-0.5">Onboarding required</p>
+                        <p>{agent.label} won't run sessions until you fill in the channel onboarding questionnaire — target audiences, conversion definitions, no-go topics, etc.</p>
+                    </div>
+                    <Button
+                        size="sm"
+                        onClick={onStartOnboarding}
+                        className="bg-[#390d58] hover:bg-[#2d0a47] text-white"
+                    >
+                        Start onboarding
+                    </Button>
+                </div>
+            )}
+
+            {billing && billing.status !== 'active' && billing.status !== 'awaiting_onboarding' && (
                 <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-900 flex items-start gap-3">
                     <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
                     <div className="flex-1">
                         {billing.status === 'monitor_mode'
                             ? `Budget cap reached. ${agent.label} is in monitor mode — no new work until the 1st.`
-                            : `Channel paused — couldn't charge the monthly fee. Top up credits to resume.`}
+                            : billing.status === 'awaiting_dependencies'
+                                ? `${agent.label} is paused — at least one required data source isn't connected. Set up the connections to resume.`
+                                : `Channel paused — couldn't charge the monthly fee. Top up credits to resume.`}
                     </div>
                     {billing.status === 'paused_no_credits' && (
                         <Button
@@ -607,6 +647,13 @@ export function ChannelOverview({ channel, onEdit, onResume, onUnhire, onSwap, b
                     </ul>
                 </details>
             )}
+
+            {/* Commitments — outstanding follow-ups the agent has opened */}
+            <CommitmentsPanel
+                open={commitments.open}
+                recentlyResolved={commitments.recently_resolved}
+                accent={agent.color}
+            />
 
             {/* Activity timeline */}
             <div className="rounded-xl border bg-white">
@@ -1081,4 +1128,136 @@ function timeAgo(iso: string): string {
     const days = Math.floor(hours / 24)
     if (days < 7)    return `${days}d ago`
     return new Date(iso).toLocaleDateString()
+}
+
+// ── Commitments panel ─────────────────────────────────────────────────────
+
+function CommitmentsPanel({
+    open,
+    recentlyResolved,
+    accent,
+}: {
+    open:             Commitment[]
+    recentlyResolved: Commitment[]
+    accent:           string
+}) {
+    if (open.length === 0 && recentlyResolved.length === 0) return null
+
+    const overdue = open.filter(c => c.is_overdue)
+    const upcoming = open.filter(c => !c.is_overdue)
+
+    return (
+        <div className="rounded-xl border bg-white">
+            <div className="flex items-center gap-2 px-5 py-3 border-b">
+                <Target className="h-4 w-4 text-muted-foreground" />
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Open commitments
+                </h4>
+                <span className="text-[11px] text-muted-foreground ml-1">
+                    {open.length} open · {overdue.length} due for review
+                </span>
+            </div>
+
+            {open.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic px-5 py-4">
+                    No open commitments.
+                </p>
+            ) : (
+                <ul className="divide-y">
+                    {[...overdue, ...upcoming].map(c => (
+                        <CommitmentRow key={c.id} commitment={c} accent={accent} />
+                    ))}
+                </ul>
+            )}
+
+            {recentlyResolved.length > 0 && (
+                <details className="border-t">
+                    <summary className="px-5 py-2.5 text-[11px] uppercase tracking-wide text-muted-foreground cursor-pointer hover:bg-muted/30">
+                        Recently resolved ({recentlyResolved.length})
+                    </summary>
+                    <ul className="divide-y border-t bg-muted/20">
+                        {recentlyResolved.map(c => (
+                            <CommitmentRow key={c.id} commitment={c} accent={accent} resolved />
+                        ))}
+                    </ul>
+                </details>
+            )}
+        </div>
+    )
+}
+
+function CommitmentRow({
+    commitment,
+    accent,
+    resolved = false,
+}: {
+    commitment: Commitment
+    accent:     string
+    resolved?:  boolean
+}) {
+    const c = commitment
+    const dueIn = (() => {
+        const ms = new Date(c.measure_at).getTime() - Date.now()
+        const days = Math.round(ms / 86400000)
+        if (days < -1) return `${Math.abs(days)}d overdue`
+        if (days < 0)  return 'overdue'
+        if (days === 0) return 'due today'
+        if (days === 1) return 'due tomorrow'
+        return `due in ${days}d`
+    })()
+
+    const statusBadge = resolved ? (
+        <span
+            className={`text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded font-medium ${
+                c.status === 'resolved_success' ? 'bg-emerald-100 text-emerald-800'
+                    : c.status === 'resolved_failed' ? 'bg-red-100 text-red-800'
+                        : 'bg-muted text-muted-foreground'
+            }`}
+        >
+            {c.status === 'resolved_success' ? 'Success'
+                : c.status === 'resolved_failed' ? 'Failed'
+                    : 'Abandoned'}
+        </span>
+    ) : c.is_overdue ? (
+        <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded font-medium bg-amber-100 text-amber-800">
+            {dueIn}
+        </span>
+    ) : (
+        <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded text-muted-foreground border">
+            {dueIn}
+        </span>
+    )
+
+    return (
+        <li className="px-5 py-3 space-y-1.5">
+            <div className="flex items-start gap-2">
+                <div
+                    className="h-1.5 w-1.5 rounded-full mt-2 shrink-0"
+                    style={{ backgroundColor: c.is_overdue || resolved ? undefined : accent }}
+                />
+                <div className="flex-1 min-w-0 space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-medium truncate">{c.opportunity}</p>
+                        {statusBadge}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                        <span className="font-medium text-foreground/80">Action:</span> {c.action}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                        <span className="font-medium text-foreground/80">Looking for:</span> {c.expected_signal}
+                    </p>
+                    {resolved && c.resolution_notes && (
+                        <p className="text-xs text-muted-foreground italic border-l-2 pl-2 mt-1.5" style={{ borderColor: `${accent}40` }}>
+                            {c.resolution_notes}
+                        </p>
+                    )}
+                    <p className="text-[11px] text-muted-foreground/80">
+                        {resolved && c.resolved_at
+                            ? `Resolved ${timeAgo(c.resolved_at)} · opened ${timeAgo(c.created_at)}`
+                            : `Opened ${timeAgo(c.created_at)} · review on ${new Date(c.measure_at).toLocaleDateString()}`}
+                    </p>
+                </div>
+            </div>
+        </li>
+    )
 }
