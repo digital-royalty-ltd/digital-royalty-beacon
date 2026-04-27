@@ -42,13 +42,39 @@ final class ConnectionsController
         /** @var array<string, array<string, mixed>> $stored */
         $stored = (array) get_option(ConfigurationEnum::OPTION_CONNECTIONS, []);
 
+        // Try Laravel for the authoritative picture (includes per-provider
+        // entity selection — site_url for GSC, customer_id for Ads, etc).
+        // Fall back to the locally-cached state if Laravel is unreachable.
+        $remote = [];
+        try {
+            $res = Services::apiClient()->getProjectConnections();
+            if ($res->isOk() && is_array($res->data['connections'] ?? null)) {
+                foreach ($res->data['connections'] as $row) {
+                    if (! is_array($row) || ! isset($row['provider'])) {
+                        continue;
+                    }
+                    $remote[(string) $row['provider']] = $row;
+                }
+            }
+        } catch (\Throwable) {
+            // ignore — fall back to locally-cached connection state
+        }
+
         $providers = [];
         foreach (OAuthProviderEnum::all() as $key) {
             $conn = isset($stored[$key]) && is_array($stored[$key]) ? $stored[$key] : [];
+            $remoteRow = $remote[$key] ?? null;
+
             $providers[] = [
                 'key'          => $key,
-                'connected'    => !empty($conn['connected']),
+                'connected'    => $remoteRow !== null
+                    ? (bool) ($remoteRow['connected'] ?? false)
+                    : ! empty($conn['connected']),
                 'connected_at' => $conn['connected_at'] ?? null,
+                'selection'    => is_array($remoteRow) && isset($remoteRow['selection']) && is_string($remoteRow['selection'])
+                    ? $remoteRow['selection']
+                    : null,
+                'is_expired'   => is_array($remoteRow) ? (bool) ($remoteRow['is_expired'] ?? false) : false,
             ];
         }
 

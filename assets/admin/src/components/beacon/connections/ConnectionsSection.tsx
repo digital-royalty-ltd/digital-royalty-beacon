@@ -30,7 +30,11 @@ interface ProviderStatus {
   key:          string
   connected:    boolean
   connected_at: string | null
+  selection:    string | null
+  is_expired:   boolean
 }
+
+const PROVIDERS_REQUIRING_SELECTION = ['google-search-console', 'google-analytics', 'google-ads', 'facebook']
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -104,15 +108,25 @@ export function ConnectionsSection() {
               return (
                 <div key={p.key}>
                   <div className="flex items-center justify-between gap-4 p-4 bg-[#390d58]/[0.02]">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
                       <div className={`w-9 h-9 rounded-lg ${meta?.color ?? 'bg-slate-400'} flex items-center justify-center shrink-0`}>
                         <span className="text-white text-xs font-bold">{meta?.initial ?? '?'}</span>
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <p className="text-sm font-medium">{meta?.label ?? p.key}</p>
                         {p.connected && p.connected_at && (
                           <p className="text-xs text-muted-foreground">
                             Connected {new Date(p.connected_at).toLocaleDateString()}
+                          </p>
+                        )}
+                        {p.connected && p.selection && (
+                          <p className="text-xs text-muted-foreground truncate font-mono">
+                            {p.selection}
+                          </p>
+                        )}
+                        {p.connected && !p.selection && PROVIDERS_REQUIRING_SELECTION.includes(p.key) && (
+                          <p className="text-xs text-amber-700">
+                            No entity selected — choose one in the Dashboard so agents know what to query.
                           </p>
                         )}
                       </div>

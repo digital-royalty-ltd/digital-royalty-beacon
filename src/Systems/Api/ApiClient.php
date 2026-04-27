@@ -192,6 +192,17 @@ final class ApiClient
         );
     }
 
+    /**
+     * Fetch the full per-provider connection list from Laravel — same data
+     * the Dashboard's connections page reads, including the operator's
+     * selected entity for each provider (GSC site, GA4 property, Ads
+     * customer, Meta page).
+     */
+    public function getProjectConnections(): ApiResponse
+    {
+        return $this->request('GET', 'connections', [], true, true);
+    }
+
     /** @param array<string, mixed> $payload */
     public function answerMarketingQuestion(string $channel, array $payload): ApiResponse
     {
