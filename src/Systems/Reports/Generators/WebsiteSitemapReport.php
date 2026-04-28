@@ -23,7 +23,7 @@ final class WebsiteSitemapReport implements ReportGeneratorInterface
 
     public function version(): int
     {
-        return 2;
+        return 3;
     }
 
     public function generate(): array
@@ -73,11 +73,17 @@ final class WebsiteSitemapReport implements ReportGeneratorInterface
             $children = $this->buildPageTree($pages, $page->ID, $depth + 1);
 
             $tree[] = [
-                'slug'     => $page->post_name,
-                'title'    => $page->post_title,
-                'url'      => (string) get_permalink($page),
-                'depth'    => $depth,
-                'children' => $children,
+                'slug'         => $page->post_name,
+                'title'        => $page->post_title,
+                'url'          => (string) get_permalink($page),
+                'depth'        => $depth,
+                // Page age — without this the agent can't distinguish a
+                // brand new page (low impressions because it hasn't ramped)
+                // from a stale underperformer (low impressions because it's
+                // mature and weak). Refresh decisions need this.
+                'published_at' => $page->post_date_gmt ? gmdate('Y-m-d', strtotime($page->post_date_gmt)) : null,
+                'modified_at'  => $page->post_modified_gmt ? gmdate('Y-m-d', strtotime($page->post_modified_gmt)) : null,
+                'children'     => $children,
             ];
         }
 
