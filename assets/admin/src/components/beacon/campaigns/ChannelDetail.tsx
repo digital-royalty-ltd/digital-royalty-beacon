@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { AiCharacterCard, AiCharacter } from './AiCharacterCard'
 import type { ChannelEntry } from './ChannelSidebar'
 import { ChannelSetupForm } from './ChannelSetupForm'
-import { ChannelOverview } from './ChannelOverview'
+import { ChannelMissionControl } from './ChannelMissionControl'
 import { ChannelOnboardingWizard } from './ChannelOnboardingWizard'
 import { api } from '@/lib/api'
 
@@ -120,7 +120,7 @@ export function ChannelDetail({ channel, characters, onPickAgent, onUpdated, onR
   }
 
   return (
-    <ChannelOverview
+    <ChannelMissionControl
       channel={channel}
       onEdit={() => setView('setup')}
       onResume={handleResume}
