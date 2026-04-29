@@ -221,6 +221,15 @@ final class ApiClient
     }
 
     /**
+     * Fetch per-day activity for a single cycle so the Progress tab can
+     * render a calendar overlay of what the agent did each day.
+     */
+    public function getCycleCalendar(string $channel, int $cycleId): ApiResponse
+    {
+        return $this->request('GET', "marketing-channels/{$channel}/progress/{$cycleId}/calendar", [], true, true);
+    }
+
+    /**
      * Strike a session's ledger entries from future agent prompts (and
      * cancel any pending automations the session queued).
      */

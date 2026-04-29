@@ -30,6 +30,7 @@ import {
   Activity as ActivityIcon,
   FileBarChart,
   MessageSquare,
+  CalendarDays,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { ChannelEntry } from './ChannelSidebar'
@@ -80,6 +81,31 @@ interface DocumentSummary {
 interface DocumentDetail extends DocumentSummary {
   payload:  Record<string, unknown>
   meta:     Record<string, unknown> | null
+}
+
+interface CalendarEvent {
+  type:     string
+  title:    string
+  summary:  string | null
+  time:     string
+}
+
+interface CalendarDay {
+  date:    string                 // YYYY-MM-DD
+  counts:  {
+    sessions:             number
+    automations:          number
+    commitments_opened:   number
+    commitments_closed:   number
+    documents:            number
+    operator_replies:     number
+  }
+  events:  CalendarEvent[]
+}
+
+interface CycleCalendar {
+  cycle:  { id: number; period: string | null; cycle_start: string; cycle_end: string }
+  days:   CalendarDay[]
 }
 
 interface ProgressMonth {
@@ -511,6 +537,7 @@ export function ChannelMissionControl({
                     <ProgressMonthCard
                       key={month.cycle_id}
                       month={month}
+                      channelKey={channel.key}
                       onOpenReport={(reportId) => loadDocument(reportId)}
                     />
                   ))}
@@ -937,7 +964,11 @@ function ConfigField({ label, value }: { label: string; value: string }) {
   )
 }
 
-function ProgressMonthCard({ month, onOpenReport }: { month: ProgressMonth; onOpenReport: (id: string) => void }) {
+function ProgressMonthCard({ month, channelKey, onOpenReport }: { month: ProgressMonth; channelKey: string; onOpenReport: (id: string) => void }) {
+  const [calendar, setCalendar] = useState<CycleCalendar | null>(null)
+  const [calendarOpen, setCalendarOpen] = useState(false)
+  const [calendarLoading, setCalendarLoading] = useState(false)
+
   const periodLabel = (() => {
     if (month.period) return month.period
     try {
@@ -946,6 +977,24 @@ function ProgressMonthCard({ month, onOpenReport }: { month: ProgressMonth; onOp
       return month.period_start
     }
   })()
+
+  const toggleCalendar = async () => {
+    if (calendarOpen) {
+      setCalendarOpen(false)
+      return
+    }
+    setCalendarOpen(true)
+    if (calendar) return  // already loaded
+    setCalendarLoading(true)
+    try {
+      const res = await api.get<CycleCalendar>(`/campaigns/channels/${channelKey}/progress/${month.cycle_id}/calendar`)
+      setCalendar(res)
+    } catch {
+      // Fail quiet; calendar block will show an empty/error state
+    } finally {
+      setCalendarLoading(false)
+    }
+  }
 
   const badgeStyle = month.status_badge === 'open'
     ? 'bg-emerald-100 text-emerald-700'
@@ -1016,8 +1065,17 @@ function ProgressMonthCard({ month, onOpenReport }: { month: ProgressMonth; onOp
         <p className="text-xs text-muted-foreground italic">No retro yet — the agent will write one once the cycle wraps.</p>
       )}
 
-      {month.report_document_id && (
-        <div className="mt-4 pt-3 border-t border-border">
+      <div className="mt-4 pt-3 border-t border-border flex flex-wrap items-center gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={toggleCalendar}
+          className="text-foreground"
+        >
+          <CalendarDays className="h-3.5 w-3.5 mr-1.5" />
+          {calendarOpen ? 'Hide calendar' : 'View calendar'}
+        </Button>
+        {month.report_document_id && (
           <Button
             size="sm"
             variant="outline"
@@ -1027,7 +1085,160 @@ function ProgressMonthCard({ month, onOpenReport }: { month: ProgressMonth; onOp
             <FileBarChart className="h-3.5 w-3.5 mr-1.5" />
             View end-of-month report
           </Button>
+        )}
+      </div>
+
+      {calendarOpen && (
+        <div className="mt-4 pt-4 border-t border-border">
+          {calendarLoading ? (
+            <div className="flex justify-center py-6">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
+          ) : calendar ? (
+            <CycleCalendarGrid calendar={calendar} />
+          ) : (
+            <p className="text-xs text-muted-foreground italic">Could not load calendar.</p>
+          )}
         </div>
+      )}
+    </div>
+  )
+}
+
+// ── Calendar grid + day cell + day-detail popover ────────────────────────
+
+function CycleCalendarGrid({ calendar }: { calendar: CycleCalendar }) {
+  const [openDate, setOpenDate] = useState<string | null>(null)
+
+  const days = calendar.days
+  if (days.length === 0) {
+    return <p className="text-xs text-muted-foreground italic">No days in this cycle.</p>
+  }
+
+  // Compute leading empty cells so the first day lands under its
+  // weekday column. Week starts Monday (UK locale convention).
+  const firstDayDate = new Date(days[0].date)
+  const firstDow = (firstDayDate.getDay() + 6) % 7  // 0 = Mon ... 6 = Sun
+  const leading = Array.from({ length: firstDow }, () => null)
+
+  const cells: (CalendarDay | null)[] = [...leading, ...days]
+  // Pad to a full weeks grid for visual stability.
+  while (cells.length % 7 !== 0) {
+    cells.push(null)
+  }
+
+  const weekdayHeaders = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+  const openDay = openDate ? days.find((d) => d.date === openDate) ?? null : null
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-7 gap-1">
+        {weekdayHeaders.map((label) => (
+          <div key={label} className="text-[10px] uppercase tracking-wide text-muted-foreground text-center pb-1">
+            {label}
+          </div>
+        ))}
+        {cells.map((day, i) => (
+          day === null ? (
+            <div key={`empty-${i}`} className="aspect-square" />
+          ) : (
+            <CalendarDayCell
+              key={day.date}
+              day={day}
+              selected={openDate === day.date}
+              onClick={() => setOpenDate(openDate === day.date ? null : day.date)}
+            />
+          )
+        ))}
+      </div>
+
+      {openDay && (
+        <CalendarDayDetail day={openDay} onClose={() => setOpenDate(null)} />
+      )}
+    </div>
+  )
+}
+
+function CalendarDayCell({ day, selected, onClick }: { day: CalendarDay; selected: boolean; onClick: () => void }) {
+  const totalEvents = day.counts.sessions + day.counts.automations + day.counts.commitments_opened + day.counts.commitments_closed + day.counts.documents + day.counts.operator_replies
+  const dayNum = parseInt(day.date.slice(8, 10), 10)
+
+  // Heatmap intensity — a few days of high activity, most low.
+  const intensity = totalEvents === 0
+    ? 'bg-white border-border'
+    : totalEvents <= 2
+      ? 'bg-[#390d58]/10 border-[#390d58]/15'
+      : totalEvents <= 5
+        ? 'bg-[#390d58]/25 border-[#390d58]/30'
+        : 'bg-[#390d58]/45 border-[#390d58]/40'
+
+  const selectedRing = selected ? 'ring-2 ring-[#390d58]' : ''
+
+  return (
+    <button
+      onClick={onClick}
+      disabled={totalEvents === 0}
+      className={`aspect-square rounded border ${intensity} ${selectedRing} flex flex-col items-center justify-between p-1 transition-colors ${
+        totalEvents > 0 ? 'cursor-pointer hover:opacity-80' : 'cursor-default opacity-60'
+      }`}
+    >
+      <span className={`text-[11px] font-medium ${totalEvents > 5 ? 'text-white' : 'text-foreground'}`}>
+        {dayNum}
+      </span>
+      {totalEvents > 0 && (
+        <div className="flex items-center gap-0.5 flex-wrap justify-center">
+          {day.counts.sessions > 0 && <span title={`${day.counts.sessions} session(s)`} className={`w-1.5 h-1.5 rounded-full ${totalEvents > 5 ? 'bg-white' : 'bg-[#390d58]'}`} />}
+          {day.counts.automations > 0 && <span title={`${day.counts.automations} automation(s)`} className="w-1.5 h-1.5 rounded-full bg-violet-500" />}
+          {day.counts.commitments_opened > 0 && <span title={`${day.counts.commitments_opened} commitment(s) opened`} className="w-1.5 h-1.5 rounded-full bg-amber-500" />}
+          {day.counts.commitments_closed > 0 && <span title={`${day.counts.commitments_closed} commitment(s) closed`} className="w-1.5 h-1.5 rounded-full bg-emerald-500" />}
+          {day.counts.documents > 0 && <span title={`${day.counts.documents} document(s)`} className="w-1.5 h-1.5 rounded-full bg-blue-500" />}
+          {day.counts.operator_replies > 0 && <span title={`${day.counts.operator_replies} operator reply`} className="w-1.5 h-1.5 rounded-full bg-pink-500" />}
+        </div>
+      )}
+    </button>
+  )
+}
+
+function CalendarDayDetail({ day, onClose }: { day: CalendarDay; onClose: () => void }) {
+  const dateLabel = new Date(day.date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
+
+  return (
+    <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <h5 className="text-sm font-semibold text-foreground">{dateLabel}</h5>
+        <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-xs">
+          Close
+        </button>
+      </div>
+
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+        {day.counts.sessions > 0 && <span><span className="font-medium text-foreground">{day.counts.sessions}</span> session(s)</span>}
+        {day.counts.automations > 0 && <span><span className="font-medium text-foreground">{day.counts.automations}</span> automation(s)</span>}
+        {day.counts.commitments_opened > 0 && <span><span className="font-medium text-foreground">{day.counts.commitments_opened}</span> commitment(s) opened</span>}
+        {day.counts.commitments_closed > 0 && <span><span className="font-medium text-foreground">{day.counts.commitments_closed}</span> closed</span>}
+        {day.counts.documents > 0 && <span><span className="font-medium text-foreground">{day.counts.documents}</span> document(s)</span>}
+        {day.counts.operator_replies > 0 && <span><span className="font-medium text-foreground">{day.counts.operator_replies}</span> operator reply</span>}
+      </div>
+
+      {day.events.length > 0 && (
+        <ul className="space-y-2 text-xs">
+          {day.events.slice(0, 25).map((e, i) => (
+            <li key={i} className="flex items-start gap-2 border-l-2 border-[#390d58]/20 pl-3">
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-foreground">{e.title}</p>
+                {e.summary && <p className="text-muted-foreground mt-0.5">{e.summary}</p>}
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  {new Date(e.time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                  {' · '}
+                  <span className="font-mono">{e.type}</span>
+                </p>
+              </div>
+            </li>
+          ))}
+          {day.events.length > 25 && (
+            <li className="text-[11px] text-muted-foreground italic">+ {day.events.length - 25} more event(s) — see Activity tab for the full list.</li>
+          )}
+        </ul>
       )}
     </div>
   )

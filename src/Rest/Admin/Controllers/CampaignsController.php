@@ -122,6 +122,12 @@ final class CampaignsController
             'permission_callback' => $perm,
         ]);
 
+        register_rest_route('beacon/v1', '/admin/campaigns/channels/(?P<channel>[a-z_]+)/progress/(?P<cycle>\d+)/calendar', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'getCycleCalendar'],
+            'permission_callback' => $perm,
+        ]);
+
         // Diagnostics: run a heartbeat synchronously and return the full trace.
         register_rest_route('beacon/v1', '/admin/campaigns/diagnostics/heartbeat', [
             'methods'             => 'POST',
@@ -377,6 +383,16 @@ final class CampaignsController
         $channel = (string) $request->get_param('channel');
 
         $res = Services::apiClient()->getChannelProgress($channel);
+
+        return $this->forward($res);
+    }
+
+    public function getCycleCalendar(WP_REST_Request $request): WP_REST_Response
+    {
+        $channel = (string) $request->get_param('channel');
+        $cycle   = (int) $request->get_param('cycle');
+
+        $res = Services::apiClient()->getCycleCalendar($channel, $cycle);
 
         return $this->forward($res);
     }
