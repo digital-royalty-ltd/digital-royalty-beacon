@@ -190,6 +190,28 @@ final class ApiClient
     }
 
     /**
+     * List documents for a channel (and campaign-level docs visible to it).
+     * Catalogue only — call getChannelDocument for the full payload of a
+     * specific one.
+     */
+    public function getChannelDocuments(string $channel, ?string $type = null): ApiResponse
+    {
+        $path = "marketing-channels/{$channel}/documents";
+        if ($type !== null && $type !== '') {
+            $path .= '?'.http_build_query(['type' => $type]);
+        }
+        return $this->request('GET', $path, [], true, true);
+    }
+
+    /**
+     * Fetch one document with its full payload.
+     */
+    public function getChannelDocument(string $channel, string $id): ApiResponse
+    {
+        return $this->request('GET', "marketing-channels/{$channel}/documents/{$id}", [], true, true);
+    }
+
+    /**
      * Strike a session's ledger entries from future agent prompts (and
      * cancel any pending automations the session queued).
      */

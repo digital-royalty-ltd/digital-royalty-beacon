@@ -23,6 +23,8 @@ import {
   AlertTriangle,
   Sparkles,
   Settings,
+  FileText,
+  ArrowLeft,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { ChannelEntry } from './ChannelSidebar'
@@ -57,6 +59,22 @@ interface OperatorQuestion {
   question:        string
   asked_at:        string
   question_hash?:  string
+}
+
+interface DocumentSummary {
+  id:              string
+  kind:            string
+  title:           string
+  format:          string
+  channel:         string | null
+  campaign_level:  boolean
+  created_at:      string
+  updated_at:      string
+}
+
+interface DocumentDetail extends DocumentSummary {
+  payload:  Record<string, unknown>
+  meta:     Record<string, unknown> | null
 }
 
 interface Memory {
@@ -179,11 +197,14 @@ export function ChannelMissionControl({
   const [ledger, setLedger]             = useState<LedgerEntry[]>([])
   const [memory, setMemory]             = useState<Memory>({})
   const [commitments, setCommitments]   = useState<{ open: Commitment[]; recently_resolved: Commitment[] }>({ open: [], recently_resolved: [] })
+  const [documents, setDocuments]       = useState<DocumentSummary[]>([])
   const [loading, setLoading]           = useState(true)
   const [error, setError]               = useState<string | null>(null)
   const [answerInputs, setAnswerInputs] = useState<Record<string, string>>({})
   const [submittingQuestion, setSubmittingQuestion] = useState<string | null>(null)
   const [showResolved, setShowResolved] = useState(false)
+  const [selectedDocument, setSelectedDocument] = useState<DocumentDetail | null>(null)
+  const [loadingDocument, setLoadingDocument]   = useState(false)
 
   // Match the existing ChannelOverview pattern: fetch ledger + memory +
   // commitments in parallel on mount and whenever the selected channel
@@ -192,12 +213,14 @@ export function ChannelMissionControl({
     setLoading(true)
     setError(null)
     try {
-      const [ledgerRes, memoryRes, commitmentsRes] = await Promise.all([
+      const [ledgerRes, memoryRes, commitmentsRes, documentsRes] = await Promise.all([
         api.get<{ entries: LedgerEntry[] }>(`/campaigns/channels/${channel.key}/ledger?limit=50`),
         api.get<{ memory: Memory }>(`/campaigns/channels/${channel.key}/memory`).catch(() => ({ memory: {} as Memory })),
         api.get<{ open: Commitment[]; recently_resolved: Commitment[] }>(
           `/campaigns/channels/${channel.key}/commitments`,
         ).catch(() => ({ open: [] as Commitment[], recently_resolved: [] as Commitment[] })),
+        api.get<{ documents: DocumentSummary[] }>(`/campaigns/channels/${channel.key}/documents`)
+          .catch(() => ({ documents: [] as DocumentSummary[] })),
       ])
       setLedger(ledgerRes.entries ?? [])
       setMemory(memoryRes.memory ?? ({} as Memory))
@@ -205,10 +228,25 @@ export function ChannelMissionControl({
         open: commitmentsRes.open ?? [],
         recently_resolved: commitmentsRes.recently_resolved ?? [],
       })
+      setDocuments(documentsRes.documents ?? [])
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load channel state.')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadDocument = async (id: string) => {
+    setLoadingDocument(true)
+    try {
+      const res = await api.get<{ document: DocumentDetail }>(
+        `/campaigns/channels/${channel.key}/documents/${id}`,
+      )
+      setSelectedDocument(res.document)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not load document.')
+    } finally {
+      setLoadingDocument(false)
     }
   }
 
@@ -406,6 +444,7 @@ export function ChannelMissionControl({
               <TabTrigger value="plan" label="Plan" />
               <TabTrigger value="commitments" label="Commitments" count={overdueCount} warning />
               <TabTrigger value="questions" label="Questions" count={questions.length} />
+              <TabTrigger value="files" label="Files" count={documents.length} />
               <TabTrigger value="activity" label="Activity" />
               <TabTrigger value="config" label="Configuration" />
             </TabsList>
@@ -604,6 +643,51 @@ export function ChannelMissionControl({
               )}
             </TabsContent>
 
+            {/* Files */}
+            <TabsContent value="files" className="mt-0">
+              {selectedDocument ? (
+                <DocumentDetailView
+                  document={selectedDocument}
+                  loading={loadingDocument}
+                  onBack={() => setSelectedDocument(null)}
+                />
+              ) : documents.length > 0 ? (
+                <div className="space-y-2">
+                  {documents.map((doc) => (
+                    <button
+                      key={doc.id}
+                      onClick={() => loadDocument(doc.id)}
+                      className="w-full flex items-start gap-3 p-3 rounded-lg border border-border hover:border-[#390d58]/30 hover:bg-[#390d58]/5 transition-colors text-left"
+                    >
+                      <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0 bg-[#390d58]/10">
+                        <FileText className="h-5 w-5 text-[#390d58]" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-medium text-foreground truncate">{doc.title}</p>
+                          {doc.campaign_level && (
+                            <Badge variant="outline" className="text-[10px] py-0 h-4 shrink-0">
+                              campaign-wide
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          <span className="font-mono">{doc.kind}</span>
+                          {' · updated '}
+                          {formatRelativeTime(doc.updated_at)}
+                        </p>
+                      </div>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0 mt-2" />
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <EmptyHint icon={<FileText className="h-6 w-6 text-[#390d58]" />}>
+                  No documents yet — keyword research, calendars, refresh queues and similar work will appear here as I produce it.
+                </EmptyHint>
+              )}
+            </TabsContent>
+
             {/* Activity */}
             <TabsContent value="activity" className="mt-0">
               {loading ? (
@@ -766,6 +850,52 @@ function ConfigField({ label, value }: { label: string; value: string }) {
         {label}
       </h4>
       <p className="text-sm text-foreground whitespace-pre-wrap">{value}</p>
+    </div>
+  )
+}
+
+function DocumentDetailView({ document, loading, onBack }: { document: DocumentDetail; loading: boolean; onBack: () => void }) {
+  const isAgentDoc = document.kind === 'agent_document'
+  const body = typeof document.payload?.body === 'string' ? (document.payload.body as string) : null
+  const format = typeof document.payload?.format === 'string' ? (document.payload.format as string) : 'json'
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <Button variant="outline" size="sm" onClick={onBack}>
+          <ArrowLeft className="h-3.5 w-3.5 mr-1.5" />
+          Back to files
+        </Button>
+        <div className="flex-1 min-w-0">
+          <h3 className="text-sm font-semibold text-foreground truncate">{document.title}</h3>
+          <p className="text-[11px] text-muted-foreground">
+            <span className="font-mono">{document.kind}</span>
+            {' · updated '}
+            {formatRelativeTime(document.updated_at)}
+            {document.campaign_level && ' · campaign-wide'}
+          </p>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-8">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : isAgentDoc && body ? (
+        // Agent documents are markdown — render as preformatted text for now;
+        // a proper markdown renderer is a follow-up.
+        <div className={`rounded-lg border border-border bg-muted/30 p-4 text-sm ${format === 'json' ? 'font-mono whitespace-pre overflow-x-auto' : 'whitespace-pre-wrap'}`}>
+          {body}
+        </div>
+      ) : (
+        // Strict-typed documents render as pretty-printed JSON for now —
+        // per-type rich rendering (table for keyword clusters, list for
+        // refresh queue, etc) is a follow-up. Operator can read the
+        // structured data directly.
+        <div className="rounded-lg border border-border bg-muted/30 p-4 text-xs font-mono whitespace-pre overflow-x-auto">
+          {JSON.stringify(document.payload, null, 2)}
+        </div>
+      )}
     </div>
   )
 }

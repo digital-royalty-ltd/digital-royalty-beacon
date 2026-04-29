@@ -104,6 +104,18 @@ final class CampaignsController
             'permission_callback' => $perm,
         ]);
 
+        register_rest_route('beacon/v1', '/admin/campaigns/channels/(?P<channel>[a-z_]+)/documents', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'getChannelDocuments'],
+            'permission_callback' => $perm,
+        ]);
+
+        register_rest_route('beacon/v1', '/admin/campaigns/channels/(?P<channel>[a-z_]+)/documents/(?P<id>[a-f0-9-]+)', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'getChannelDocument'],
+            'permission_callback' => $perm,
+        ]);
+
         // Diagnostics: run a heartbeat synchronously and return the full trace.
         register_rest_route('beacon/v1', '/admin/campaigns/diagnostics/heartbeat', [
             'methods'             => 'POST',
@@ -330,6 +342,26 @@ final class CampaignsController
         $channel = (string) $request->get_param('channel');
 
         $res = Services::apiClient()->getChannelCommitments($channel);
+
+        return $this->forward($res);
+    }
+
+    public function getChannelDocuments(WP_REST_Request $request): WP_REST_Response
+    {
+        $channel = (string) $request->get_param('channel');
+        $type    = $request->get_param('type');
+
+        $res = Services::apiClient()->getChannelDocuments($channel, is_string($type) ? $type : null);
+
+        return $this->forward($res);
+    }
+
+    public function getChannelDocument(WP_REST_Request $request): WP_REST_Response
+    {
+        $channel = (string) $request->get_param('channel');
+        $id      = (string) $request->get_param('id');
+
+        $res = Services::apiClient()->getChannelDocument($channel, $id);
 
         return $this->forward($res);
     }
