@@ -29,6 +29,7 @@ import {
   ThumbsUp,
   Activity as ActivityIcon,
   FileBarChart,
+  MessageSquare,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { ChannelEntry } from './ChannelSidebar'
@@ -177,8 +178,17 @@ function getMainTake(
     )
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
 
-  if (candidate?.summary) {
-    return { content: candidate.summary, timestamp: candidate.created_at }
+  if (candidate) {
+    // The ledger's `summary` column is truncated to 500 chars for index
+    // hygiene; the full text lives in data.summary. Prefer the full
+    // version so the hero card renders the agent's complete take.
+    const dataSummary = typeof candidate.data?.summary === 'string'
+      ? (candidate.data.summary as string)
+      : null
+    const fullText = dataSummary ?? candidate.summary
+    if (fullText) {
+      return { content: fullText, timestamp: candidate.created_at }
+    }
   }
 
   // Friendly empty-state copy in the agent's voice when no posts exist yet.
@@ -357,7 +367,10 @@ export function ChannelMissionControl({
               </div>
 
               <div className="flex-1">
-                <p className="text-white/95 text-lg leading-relaxed font-bold">
+                <p className="text-[10px] uppercase tracking-wider text-white/50 font-semibold mb-2">
+                  Latest Campaign Work
+                </p>
+                <p className="text-white/95 text-base leading-relaxed whitespace-pre-wrap">
                   {mainTake.content}
                 </p>
                 {mainTake.timestamp && (
@@ -415,7 +428,9 @@ export function ChannelMissionControl({
                   <p className="text-white font-bold text-sm tracking-wide leading-tight">
                     {agent.name}
                   </p>
-                  <p className="text-white/60 text-xs leading-tight">{agent.label}</p>
+                  <p className="text-white/60 text-xs leading-tight mt-0.5">
+                    Managing {channel.label}
+                  </p>
                 </div>
               </div>
             </div>
@@ -470,13 +485,13 @@ export function ChannelMissionControl({
         <Tabs defaultValue="progress" className="w-full">
           <CardHeader className="pb-0 px-0 pt-0">
             <TabsList className="w-full justify-start bg-transparent px-6 pt-4 pb-0 h-auto gap-0 border-b border-border rounded-none">
-              <TabTrigger value="progress" label="Progress" />
-              <TabTrigger value="plan" label="Plan" />
-              <TabTrigger value="commitments" label="Commitments" count={overdueCount} warning />
-              <TabTrigger value="questions" label="Questions" count={questions.length} />
-              <TabTrigger value="files" label="Files" count={documents.length} />
-              <TabTrigger value="activity" label="Activity" />
-              <TabTrigger value="config" label="Configuration" />
+              <TabTrigger value="progress" label="Progress" icon={<TrendingUp className="h-3.5 w-3.5" />} />
+              <TabTrigger value="plan" label="Plan" icon={<Target className="h-3.5 w-3.5" />} />
+              <TabTrigger value="commitments" label="Commitments" icon={<CheckCircle2 className="h-3.5 w-3.5" />} count={overdueCount} warning />
+              <TabTrigger value="questions" label="Questions" icon={<MessageSquare className="h-3.5 w-3.5" />} count={questions.length} />
+              <TabTrigger value="files" label="Files" icon={<FileText className="h-3.5 w-3.5" />} count={documents.length} />
+              <TabTrigger value="activity" label="Activity" icon={<ActivityIcon className="h-3.5 w-3.5" />} />
+              <TabTrigger value="config" label="Configuration" icon={<Settings className="h-3.5 w-3.5" />} />
             </TabsList>
           </CardHeader>
 
@@ -867,16 +882,29 @@ function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; va
   )
 }
 
-function TabTrigger({ value, label, count, warning }: { value: string; label: string; count?: number; warning?: boolean }) {
+function TabTrigger({
+  value,
+  label,
+  icon,
+  count,
+  warning,
+}: {
+  value: string
+  label: string
+  icon?: React.ReactNode
+  count?: number
+  warning?: boolean
+}) {
   return (
     <TabsTrigger
       value={value}
-      className="rounded-none rounded-t-lg border-b-2 border-transparent data-[state=active]:border-[#390d58] data-[state=active]:bg-transparent data-[state=active]:shadow-none px-4 py-3 text-sm font-medium text-muted-foreground data-[state=active]:text-[#390d58] transition-colors"
+      className="rounded-none rounded-t-lg border-b-2 border-transparent data-[state=active]:border-[#390d58] data-[state=active]:bg-transparent data-[state=active]:shadow-none px-4 py-3 text-sm font-medium text-muted-foreground data-[state=active]:text-[#390d58] transition-colors gap-2"
     >
+      {icon && <span className="inline-flex">{icon}</span>}
       {label}
       {count !== undefined && count > 0 && (
         <span
-          className={`ml-2 px-1.5 py-0.5 text-[10px] rounded-full font-medium ${
+          className={`ml-1 px-1.5 py-0.5 text-[10px] rounded-full font-medium ${
             warning ? 'bg-amber-100 text-amber-700' : 'bg-[#390d58] text-white'
           }`}
         >
