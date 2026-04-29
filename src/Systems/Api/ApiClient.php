@@ -229,6 +229,41 @@ final class ApiClient
         return $this->request('GET', "marketing-channels/{$channel}/progress/{$cycleId}/calendar", [], true, true);
     }
 
+    public function getChannelCommissions(string $channel): ApiResponse
+    {
+        return $this->request('GET', "marketing-channels/{$channel}/commissions", [], true, true);
+    }
+
+    /** @param array<string, mixed> $payload */
+    public function approveCommission(string $channel, string $id, array $payload = []): ApiResponse
+    {
+        return $this->request('POST', "marketing-channels/{$channel}/commissions/{$id}/approve", $payload, true, true);
+    }
+
+    /** @param array<string, mixed> $payload */
+    public function rejectCommission(string $channel, string $id, array $payload = []): ApiResponse
+    {
+        return $this->request('POST', "marketing-channels/{$channel}/commissions/{$id}/reject", $payload, true, true);
+    }
+
+    /** @param array<string, mixed> $payload */
+    public function markCommissionOrdered(string $channel, string $id, array $payload = []): ApiResponse
+    {
+        return $this->request('POST', "marketing-channels/{$channel}/commissions/{$id}/mark-ordered", $payload, true, true);
+    }
+
+    /** @param array<string, mixed> $payload */
+    public function markCommissionDelivered(string $channel, string $id, array $payload = []): ApiResponse
+    {
+        return $this->request('POST', "marketing-channels/{$channel}/commissions/{$id}/mark-delivered", $payload, true, true);
+    }
+
+    /** @param array<string, mixed> $payload */
+    public function cancelCommission(string $channel, string $id, array $payload = []): ApiResponse
+    {
+        return $this->request('POST', "marketing-channels/{$channel}/commissions/{$id}/cancel", $payload, true, true);
+    }
+
     /**
      * Strike a session's ledger entries from future agent prompts (and
      * cancel any pending automations the session queued).

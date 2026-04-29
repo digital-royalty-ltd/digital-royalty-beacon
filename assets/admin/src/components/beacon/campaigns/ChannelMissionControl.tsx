@@ -31,6 +31,9 @@ import {
   FileBarChart,
   MessageSquare,
   CalendarDays,
+  ShoppingBag,
+  Check,
+  X,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { ChannelEntry } from './ChannelSidebar'
@@ -81,6 +84,29 @@ interface DocumentSummary {
 interface DocumentDetail extends DocumentSummary {
   payload:  Record<string, unknown>
   meta:     Record<string, unknown> | null
+}
+
+interface Commission {
+  id:                       string
+  channel:                  string
+  vendor_type:              'digital_royalty' | 'link_building'
+  vendor_name:              string | null
+  service_brief:            string
+  expected_value:           string
+  expected_delivery_days:   number
+  price_pence:              number | null
+  status:                   'pending_approval' | 'approved' | 'ordered' | 'in_progress' | 'delivered' | 'cancelled'
+  is_in_flight:             boolean
+  expected_delivery_at:     string
+  internal_work_request_id: number | null
+  external_order_ref:       string | null
+  notes:                    string | null
+  cancellation_reason:      string | null
+  proposed_at:              string
+  approved_at:              string | null
+  ordered_at:               string | null
+  delivered_at:             string | null
+  cancelled_at:             string | null
 }
 
 interface CalendarEvent {
@@ -260,6 +286,7 @@ export function ChannelMissionControl({
   const [commitments, setCommitments]   = useState<{ open: Commitment[]; recently_resolved: Commitment[] }>({ open: [], recently_resolved: [] })
   const [documents, setDocuments]       = useState<DocumentSummary[]>([])
   const [progress, setProgress]         = useState<ProgressMonth[]>([])
+  const [commissions, setCommissions]   = useState<Commission[]>([])
   const [loading, setLoading]           = useState(true)
   const [error, setError]               = useState<string | null>(null)
   const [answerInputs, setAnswerInputs] = useState<Record<string, string>>({})
@@ -275,7 +302,7 @@ export function ChannelMissionControl({
     setLoading(true)
     setError(null)
     try {
-      const [ledgerRes, memoryRes, commitmentsRes, documentsRes, progressRes] = await Promise.all([
+      const [ledgerRes, memoryRes, commitmentsRes, documentsRes, progressRes, commissionsRes] = await Promise.all([
         api.get<{ entries: LedgerEntry[] }>(`/campaigns/channels/${channel.key}/ledger?limit=50`),
         api.get<{ memory: Memory }>(`/campaigns/channels/${channel.key}/memory`).catch(() => ({ memory: {} as Memory })),
         api.get<{ open: Commitment[]; recently_resolved: Commitment[] }>(
@@ -285,6 +312,8 @@ export function ChannelMissionControl({
           .catch(() => ({ documents: [] as DocumentSummary[] })),
         api.get<{ months: ProgressMonth[] }>(`/campaigns/channels/${channel.key}/progress`)
           .catch(() => ({ months: [] as ProgressMonth[] })),
+        api.get<{ commissions: Commission[] }>(`/campaigns/channels/${channel.key}/commissions`)
+          .catch(() => ({ commissions: [] as Commission[] })),
       ])
       setLedger(ledgerRes.entries ?? [])
       setMemory(memoryRes.memory ?? ({} as Memory))
@@ -294,6 +323,7 @@ export function ChannelMissionControl({
       })
       setDocuments(documentsRes.documents ?? [])
       setProgress(progressRes.months ?? [])
+      setCommissions(commissionsRes.commissions ?? [])
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load channel state.')
     } finally {
@@ -316,6 +346,15 @@ export function ChannelMissionControl({
   }
 
   useEffect(() => { loadData() }, [channel.key])
+
+  const performCommissionAction = async (id: string, action: string, payload: Record<string, unknown> = {}) => {
+    try {
+      await api.post(`/campaigns/channels/${channel.key}/commissions/${id}/${action}`, payload)
+      await loadData()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Commission action failed.')
+    }
+  }
 
   const submitAnswer = async (questionHash: string) => {
     const answer = answerInputs[questionHash]
@@ -516,6 +555,7 @@ export function ChannelMissionControl({
               <TabTrigger value="commitments" label="Commitments" icon={<CheckCircle2 className="h-3.5 w-3.5" />} count={overdueCount} warning />
               <TabTrigger value="questions" label="Questions" icon={<MessageSquare className="h-3.5 w-3.5" />} count={questions.length} />
               <TabTrigger value="files" label="Files" icon={<FileText className="h-3.5 w-3.5" />} count={documents.length} />
+              <TabTrigger value="commissions" label="Commissions" icon={<ShoppingBag className="h-3.5 w-3.5" />} count={commissions.filter(c => c.status === 'pending_approval').length} warning />
               <TabTrigger value="activity" label="Activity" icon={<ActivityIcon className="h-3.5 w-3.5" />} />
               <TabTrigger value="config" label="Configuration" icon={<Settings className="h-3.5 w-3.5" />} />
             </TabsList>
@@ -785,6 +825,44 @@ export function ChannelMissionControl({
               )}
             </TabsContent>
 
+            {/* Commissions */}
+            <TabsContent value="commissions" className="mt-0">
+              {commissions.length > 0 ? (
+                <div className="space-y-6">
+                  {(['pending_approval', 'in_flight', 'delivered', 'cancelled'] as const).map((bucket) => {
+                    const items = commissions.filter((c) => bucket === 'in_flight'
+                      ? c.is_in_flight
+                      : c.status === bucket)
+                    if (items.length === 0) return null
+                    const bucketLabel = bucket === 'pending_approval' ? 'Awaiting your approval'
+                      : bucket === 'in_flight' ? 'In flight'
+                      : bucket === 'delivered' ? 'Delivered'
+                      : 'Cancelled'
+                    return (
+                      <section key={bucket}>
+                        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+                          {bucketLabel} ({items.length})
+                        </h4>
+                        <div className="space-y-2">
+                          {items.map((c) => (
+                            <CommissionRow
+                              key={c.id}
+                              commission={c}
+                              onAction={(action, payload) => performCommissionAction(c.id, action, payload)}
+                            />
+                          ))}
+                        </div>
+                      </section>
+                    )
+                  })}
+                </div>
+              ) : (
+                <EmptyHint icon={<ShoppingBag className="h-6 w-6 text-[#390d58]" />}>
+                  No commissions yet — when I propose long-running outsourced or internal work (link building, dev fixes etc.) it will land here for your approval.
+                </EmptyHint>
+              )}
+            </TabsContent>
+
             {/* Activity */}
             <TabsContent value="activity" className="mt-0">
               {loading ? (
@@ -960,6 +1038,124 @@ function ConfigField({ label, value }: { label: string; value: string }) {
         {label}
       </h4>
       <p className="text-sm text-foreground whitespace-pre-wrap">{value}</p>
+    </div>
+  )
+}
+
+function CommissionRow({ commission, onAction }: { commission: Commission; onAction: (action: string, payload?: Record<string, unknown>) => void }) {
+  const [busy, setBusy] = useState<string | null>(null)
+  const c = commission
+
+  const wrap = async (action: string, payload: Record<string, unknown> = {}) => {
+    setBusy(action)
+    try {
+      await onAction(action, payload)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const vendorLabel = c.vendor_type === 'digital_royalty' ? 'Digital Royalty' : (c.vendor_name ?? 'External vendor')
+  const statusBadgeClass = c.status === 'pending_approval' ? 'bg-amber-100 text-amber-800'
+    : c.status === 'delivered' ? 'bg-emerald-100 text-emerald-800'
+    : c.status === 'cancelled' ? 'bg-muted text-muted-foreground'
+    : 'bg-[#390d58]/10 text-[#390d58]'
+
+  const eta = (() => {
+    try {
+      return new Date(c.expected_delivery_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+    } catch {
+      return 'TBD'
+    }
+  })()
+
+  const priceStr = c.price_pence !== null
+    ? '£'+(c.price_pence / 100).toFixed(2)
+    : null
+
+  return (
+    <div className={`rounded-xl border p-4 ${c.status === 'pending_approval' ? 'border-amber-200 bg-amber-50/40' : 'border-border bg-white'}`}>
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">{vendorLabel}</span>
+            <span className={`text-[10px] uppercase tracking-wide font-medium px-1.5 py-0.5 rounded ${statusBadgeClass}`}>
+              {c.status.replace(/_/g, ' ')}
+            </span>
+            {priceStr && <span className="text-[11px] text-muted-foreground">· {priceStr}</span>}
+            <span className="text-[11px] text-muted-foreground">· ETA {eta}</span>
+          </div>
+        </div>
+      </div>
+
+      <p className="text-sm text-foreground mb-1.5">{c.service_brief}</p>
+      <p className="text-xs text-muted-foreground mb-3">
+        <span className="font-medium text-foreground/80">Looking for:</span> {c.expected_value}
+      </p>
+
+      {c.cancellation_reason && (
+        <p className="text-xs italic text-muted-foreground border-l-2 border-muted-foreground/30 pl-2 mb-2">
+          {c.cancellation_reason}
+        </p>
+      )}
+      {c.notes && (
+        <p className="text-xs italic text-muted-foreground border-l-2 border-[#390d58]/20 pl-2 mb-2 whitespace-pre-wrap">
+          {c.notes}
+        </p>
+      )}
+
+      <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
+        {c.status === 'pending_approval' && (
+          <>
+            <Button size="sm" disabled={busy !== null} onClick={() => wrap('approve')} className="bg-[#390d58] hover:bg-[#2d0a47] text-white">
+              {busy === 'approve' ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Check className="h-3.5 w-3.5 mr-1.5" />}
+              Approve
+            </Button>
+            <Button size="sm" variant="outline" disabled={busy !== null}
+              onClick={() => {
+                const reason = window.prompt('Reason for rejecting (optional)') ?? ''
+                wrap('reject', reason ? { reason } : {})
+              }}
+              className="text-red-600 border-red-200 hover:bg-red-50">
+              <X className="h-3.5 w-3.5 mr-1.5" />
+              Reject
+            </Button>
+          </>
+        )}
+        {c.status === 'approved' && c.vendor_type === 'link_building' && !c.external_order_ref && (
+          <Button size="sm" variant="outline" disabled={busy !== null}
+            onClick={() => {
+              const ref = window.prompt('External order reference (vendor order id)') ?? ''
+              if (ref) wrap('mark-ordered', { external_order_ref: ref })
+            }}>
+            Mark ordered
+          </Button>
+        )}
+        {(c.status === 'approved' || c.status === 'ordered' || c.status === 'in_progress') && (
+          <>
+            <Button size="sm" variant="outline" disabled={busy !== null}
+              onClick={() => {
+                const notes = window.prompt('Delivery notes (optional)') ?? ''
+                wrap('mark-delivered', notes ? { notes } : {})
+              }}>
+              Mark delivered
+            </Button>
+            <Button size="sm" variant="outline" disabled={busy !== null}
+              onClick={() => {
+                const reason = window.prompt('Cancellation reason') ?? ''
+                if (reason) wrap('cancel', { reason })
+              }}
+              className="text-red-600 border-red-200 hover:bg-red-50">
+              Cancel
+            </Button>
+          </>
+        )}
+        {c.internal_work_request_id !== null && (
+          <span className="text-[11px] text-muted-foreground self-center">
+            WorkRequest #{c.internal_work_request_id}
+          </span>
+        )}
+      </div>
     </div>
   )
 }

@@ -128,6 +128,18 @@ final class CampaignsController
             'permission_callback' => $perm,
         ]);
 
+        register_rest_route('beacon/v1', '/admin/campaigns/channels/(?P<channel>[a-z_]+)/commissions', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'getChannelCommissions'],
+            'permission_callback' => $perm,
+        ]);
+
+        register_rest_route('beacon/v1', '/admin/campaigns/channels/(?P<channel>[a-z_]+)/commissions/(?P<id>[a-f0-9-]+)/(?P<action>approve|reject|mark-ordered|mark-delivered|cancel)', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'commissionAction'],
+            'permission_callback' => $perm,
+        ]);
+
         // Diagnostics: run a heartbeat synchronously and return the full trace.
         register_rest_route('beacon/v1', '/admin/campaigns/diagnostics/heartbeat', [
             'methods'             => 'POST',
@@ -393,6 +405,39 @@ final class CampaignsController
         $cycle   = (int) $request->get_param('cycle');
 
         $res = Services::apiClient()->getCycleCalendar($channel, $cycle);
+
+        return $this->forward($res);
+    }
+
+    public function getChannelCommissions(WP_REST_Request $request): WP_REST_Response
+    {
+        $channel = (string) $request->get_param('channel');
+
+        $res = Services::apiClient()->getChannelCommissions($channel);
+
+        return $this->forward($res);
+    }
+
+    public function commissionAction(WP_REST_Request $request): WP_REST_Response
+    {
+        $channel = (string) $request->get_param('channel');
+        $id      = (string) $request->get_param('id');
+        $action  = (string) $request->get_param('action');
+        $payload = (array) $request->get_json_params();
+
+        $client = Services::apiClient();
+        $res = match ($action) {
+            'approve'         => $client->approveCommission($channel, $id, $payload),
+            'reject'          => $client->rejectCommission($channel, $id, $payload),
+            'mark-ordered'    => $client->markCommissionOrdered($channel, $id, $payload),
+            'mark-delivered'  => $client->markCommissionDelivered($channel, $id, $payload),
+            'cancel'          => $client->cancelCommission($channel, $id, $payload),
+            default           => null,
+        };
+
+        if ($res === null) {
+            return new WP_REST_Response(['ok' => false, 'message' => 'Unknown commission action.'], 400);
+        }
 
         return $this->forward($res);
     }

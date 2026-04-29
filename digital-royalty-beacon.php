@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP Beacon
  * Description: Connect WordPress via Beacon to gain: automation, content intelligence, and publishing.
- * Version: 0.11.0
+ * Version: 0.12.0
  * Author: Digital Royalty
  * Author URI: https://digitalroyalty.co.uk
  * Plugin URI: https://digitalroyalty.co.uk
@@ -34,7 +34,7 @@ if (!defined('ABSPATH')) {
  * Current plugin version.
  * Used for cache busting, API headers, etc.
  */
-define('DR_BEACON_VERSION', '0.11.0');
+define('DR_BEACON_VERSION', '0.12.0');
 
 /**
  * Absolute path to this plugin file.
