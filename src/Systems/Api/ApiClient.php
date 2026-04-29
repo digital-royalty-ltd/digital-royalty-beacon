@@ -212,6 +212,15 @@ final class ApiClient
     }
 
     /**
+     * Fetch the channel's month-by-month progress summary — cycles with
+     * activity counts, retro excerpts, and end-of-month report links.
+     */
+    public function getChannelProgress(string $channel): ApiResponse
+    {
+        return $this->request('GET', "marketing-channels/{$channel}/progress", [], true, true);
+    }
+
+    /**
      * Strike a session's ledger entries from future agent prompts (and
      * cancel any pending automations the session queued).
      */

@@ -25,6 +25,10 @@ import {
   Settings,
   FileText,
   ArrowLeft,
+  TrendingUp,
+  ThumbsUp,
+  Activity as ActivityIcon,
+  FileBarChart,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { ChannelEntry } from './ChannelSidebar'
@@ -75,6 +79,27 @@ interface DocumentSummary {
 interface DocumentDetail extends DocumentSummary {
   payload:  Record<string, unknown>
   meta:     Record<string, unknown> | null
+}
+
+interface ProgressMonth {
+  cycle_id:           number
+  period:             string | null
+  period_start:       string
+  period_end:         string
+  is_current:         boolean
+  status_badge:       'open' | 'reviewed' | 'pending_review'
+  activity:           {
+    session_count:        number
+    automation_count:     number
+    commitments_closed:   number
+  }
+  retro:              {
+    document_id:    string
+    what_worked:    string[]
+    what_didnt:     string[]
+    lessons:        string[]
+  } | null
+  report_document_id: string | null
 }
 
 interface Memory {
@@ -198,6 +223,7 @@ export function ChannelMissionControl({
   const [memory, setMemory]             = useState<Memory>({})
   const [commitments, setCommitments]   = useState<{ open: Commitment[]; recently_resolved: Commitment[] }>({ open: [], recently_resolved: [] })
   const [documents, setDocuments]       = useState<DocumentSummary[]>([])
+  const [progress, setProgress]         = useState<ProgressMonth[]>([])
   const [loading, setLoading]           = useState(true)
   const [error, setError]               = useState<string | null>(null)
   const [answerInputs, setAnswerInputs] = useState<Record<string, string>>({})
@@ -213,7 +239,7 @@ export function ChannelMissionControl({
     setLoading(true)
     setError(null)
     try {
-      const [ledgerRes, memoryRes, commitmentsRes, documentsRes] = await Promise.all([
+      const [ledgerRes, memoryRes, commitmentsRes, documentsRes, progressRes] = await Promise.all([
         api.get<{ entries: LedgerEntry[] }>(`/campaigns/channels/${channel.key}/ledger?limit=50`),
         api.get<{ memory: Memory }>(`/campaigns/channels/${channel.key}/memory`).catch(() => ({ memory: {} as Memory })),
         api.get<{ open: Commitment[]; recently_resolved: Commitment[] }>(
@@ -221,6 +247,8 @@ export function ChannelMissionControl({
         ).catch(() => ({ open: [] as Commitment[], recently_resolved: [] as Commitment[] })),
         api.get<{ documents: DocumentSummary[] }>(`/campaigns/channels/${channel.key}/documents`)
           .catch(() => ({ documents: [] as DocumentSummary[] })),
+        api.get<{ months: ProgressMonth[] }>(`/campaigns/channels/${channel.key}/progress`)
+          .catch(() => ({ months: [] as ProgressMonth[] })),
       ])
       setLedger(ledgerRes.entries ?? [])
       setMemory(memoryRes.memory ?? ({} as Memory))
@@ -229,6 +257,7 @@ export function ChannelMissionControl({
         recently_resolved: commitmentsRes.recently_resolved ?? [],
       })
       setDocuments(documentsRes.documents ?? [])
+      setProgress(progressRes.months ?? [])
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load channel state.')
     } finally {
@@ -438,9 +467,10 @@ export function ChannelMissionControl({
 
       {/* ── Tabs ────────────────────────────────────────────────────────── */}
       <Card className="border-0 shadow-md">
-        <Tabs defaultValue="plan" className="w-full">
+        <Tabs defaultValue="progress" className="w-full">
           <CardHeader className="pb-0 px-0 pt-0">
             <TabsList className="w-full justify-start bg-transparent px-6 pt-4 pb-0 h-auto gap-0 border-b border-border rounded-none">
+              <TabTrigger value="progress" label="Progress" />
               <TabTrigger value="plan" label="Plan" />
               <TabTrigger value="commitments" label="Commitments" count={overdueCount} warning />
               <TabTrigger value="questions" label="Questions" count={questions.length} />
@@ -452,6 +482,31 @@ export function ChannelMissionControl({
 
           <CardContent className="pt-6">
             {/* Plan */}
+            {/* Progress — month-by-month timeline */}
+            <TabsContent value="progress" className="mt-0">
+              {selectedDocument ? (
+                <DocumentDetailView
+                  document={selectedDocument}
+                  loading={loadingDocument}
+                  onBack={() => setSelectedDocument(null)}
+                />
+              ) : progress.length > 0 ? (
+                <div className="space-y-3">
+                  {progress.map((month) => (
+                    <ProgressMonthCard
+                      key={month.cycle_id}
+                      month={month}
+                      onOpenReport={(reportId) => loadDocument(reportId)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <EmptyHint icon={<TrendingUp className="h-6 w-6 text-[#390d58]" />}>
+                  No cycles yet — your first month will appear here once it kicks off.
+                </EmptyHint>
+              )}
+            </TabsContent>
+
             <TabsContent value="plan" className="mt-0">
               {memory.cycle_plan ? (
                 <div className="space-y-6">
@@ -850,6 +905,102 @@ function ConfigField({ label, value }: { label: string; value: string }) {
         {label}
       </h4>
       <p className="text-sm text-foreground whitespace-pre-wrap">{value}</p>
+    </div>
+  )
+}
+
+function ProgressMonthCard({ month, onOpenReport }: { month: ProgressMonth; onOpenReport: (id: string) => void }) {
+  const periodLabel = (() => {
+    if (month.period) return month.period
+    try {
+      return new Date(month.period_start).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+    } catch {
+      return month.period_start
+    }
+  })()
+
+  const badgeStyle = month.status_badge === 'open'
+    ? 'bg-emerald-100 text-emerald-700'
+    : month.status_badge === 'reviewed'
+      ? 'bg-[#390d58]/10 text-[#390d58]'
+      : 'bg-amber-100 text-amber-700'
+  const badgeLabel = month.status_badge === 'open'
+    ? 'Open · ongoing'
+    : month.status_badge === 'reviewed'
+      ? 'Reviewed'
+      : 'Pending review'
+
+  return (
+    <div className={`rounded-xl border p-5 ${month.is_current ? 'border-[#390d58]/30 bg-[#390d58]/5' : 'border-border bg-white'}`}>
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="min-w-0">
+          <h4 className="text-base font-semibold text-foreground">{periodLabel}</h4>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            {formatRelativeTime(month.period_start)} → {formatRelativeTime(month.period_end)}
+          </p>
+        </div>
+        <span className={`shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${badgeStyle}`}>
+          {badgeLabel}
+        </span>
+      </div>
+
+      {!month.is_current && (
+        <div className="flex flex-wrap gap-x-5 gap-y-1.5 mb-3 text-xs text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5">
+            <ActivityIcon className="h-3 w-3" />
+            <span className="text-foreground font-medium">{month.activity.session_count}</span> sessions
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <Zap className="h-3 w-3" />
+            <span className="text-foreground font-medium">{month.activity.automation_count}</span> automations
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <CheckCircle2 className="h-3 w-3" />
+            <span className="text-foreground font-medium">{month.activity.commitments_closed}</span> commitments closed
+          </span>
+        </div>
+      )}
+
+      {month.retro && (
+        <div className="space-y-2 text-xs">
+          {month.retro.what_worked.length > 0 && (
+            <div>
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold mb-1 inline-flex items-center gap-1.5">
+                <ThumbsUp className="h-3 w-3 text-emerald-600" /> What worked
+              </p>
+              <ul className="list-disc list-outside pl-4 space-y-0.5 text-foreground/80">
+                {month.retro.what_worked.slice(0, 3).map((it, i) => <li key={i}>{it}</li>)}
+              </ul>
+            </div>
+          )}
+          {month.retro.lessons.length > 0 && (
+            <div>
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold mb-1">Lessons</p>
+              <ul className="list-disc list-outside pl-4 space-y-0.5 text-foreground/80">
+                {month.retro.lessons.slice(0, 3).map((it, i) => <li key={i}>{it}</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!month.is_current && !month.retro && (
+        <p className="text-xs text-muted-foreground italic">No retro yet — the agent will write one once the cycle wraps.</p>
+      )}
+
+      {month.report_document_id && (
+        <div className="mt-4 pt-3 border-t border-border">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => onOpenReport(month.report_document_id as string)}
+            className="text-[#390d58] border-[#390d58]/30 hover:bg-[#390d58]/5"
+          >
+            <FileBarChart className="h-3.5 w-3.5 mr-1.5" />
+            View end-of-month report
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

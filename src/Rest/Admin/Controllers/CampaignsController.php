@@ -116,6 +116,12 @@ final class CampaignsController
             'permission_callback' => $perm,
         ]);
 
+        register_rest_route('beacon/v1', '/admin/campaigns/channels/(?P<channel>[a-z_]+)/progress', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'getChannelProgress'],
+            'permission_callback' => $perm,
+        ]);
+
         // Diagnostics: run a heartbeat synchronously and return the full trace.
         register_rest_route('beacon/v1', '/admin/campaigns/diagnostics/heartbeat', [
             'methods'             => 'POST',
@@ -362,6 +368,15 @@ final class CampaignsController
         $id      = (string) $request->get_param('id');
 
         $res = Services::apiClient()->getChannelDocument($channel, $id);
+
+        return $this->forward($res);
+    }
+
+    public function getChannelProgress(WP_REST_Request $request): WP_REST_Response
+    {
+        $channel = (string) $request->get_param('channel');
+
+        $res = Services::apiClient()->getChannelProgress($channel);
 
         return $this->forward($res);
     }
